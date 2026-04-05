@@ -1,0 +1,27 @@
+{
+  "name": "stock_anal",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:schema": "node --env-file=.env scripts/show-schema.mjs",
+    "db:apply": "node --env-file=.env scripts/apply-schema.mjs",
+    "batch:run": "node --env-file=.env scripts/run-krx-batch.mjs",
+    "batch:backfill": "node --env-file=.env scripts/run-krx-batch.mjs --mode backfill"
+  },
+  "dependencies": {
+    "next": "15.5.12",
+    "pg": "8.16.3",
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@types/react": "19.0.2",
+    "@types/react-dom": "19.0.2",
+    "typescript": "5.7.2"
+  }
+}
