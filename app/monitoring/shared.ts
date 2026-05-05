@@ -70,6 +70,28 @@ export type MonitoringOverview = {
   performance: PerformanceRow[];
 };
 
+export type SectorTrendPoint = {
+  tradeDate: string;
+  cumulativeIndex: number;
+  sectorReturn1d: number | null;
+  predictionProbability: number | null;
+};
+
+export type SectorDetail = {
+  sectorCode: string;
+  sectorName: string;
+  market: string | null;
+  activeSectorModelVersion: string | null;
+  latestPredictionDate: string | null;
+  latestPredictionProbability: number | null;
+  latestPredictionRank: number | null;
+  latestEvaluatedPredictionDate: string | null;
+  latestEvaluatedProbability: number | null;
+  latestEvaluatedExcessReturn: number | null;
+  history: SectorTrendPoint[];
+  predictionWindowDates: string[];
+};
+
 export function formatPercent(value: number | null | undefined, digits = 2) {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return "-";

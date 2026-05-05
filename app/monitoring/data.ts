@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 
-import type { MonitoringOverview } from "./shared";
+import type { MonitoringOverview, SectorDetail } from "./shared";
 
 let pool: Pool | undefined;
 
@@ -21,7 +21,14 @@ function toDateText(value: unknown) {
   }
 
   if (value instanceof Date) {
-    return value.toISOString().slice(0, 10);
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Seoul",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+
+    return formatter.format(value);
   }
 
   return String(value).slice(0, 10);
@@ -299,6 +306,132 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
         avgExcessReturn: toNumber(row.avg_excess_return),
         avgProbability: toNumber(row.avg_probability),
       })),
+    };
+  } finally {
+    client.release();
+  }
+}
+
+export async function getSectorDetail(sectorCode: string): Promise<SectorDetail | null> {
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required for sector detail.");
+  }
+
+  const client = await getPool().connect();
+
+  try {
+    const activeSectorModelResult = await client.query(
+      `
+        select model_version
+        from model_registry
+        where model_type = 'sector'
+          and status = 'active'
+        order by created_at desc
+        limit 1
+      `,
+    );
+
+    const activeSectorModelVersion = activeSectorModelResult.rows[0]?.model_version
+      ? String(activeSectorModelResult.rows[0].model_version)
+      : null;
+
+    const sectorMetaResult = await client.query(
+      `
+        select sector_code, sector_name, market
+        from sector_daily_snapshot
+        where sector_code = $1
+        order by trade_date desc
+        limit 1
+      `,
+      [sectorCode],
+    );
+
+    const sectorMeta = sectorMetaResult.rows[0];
+    if (!sectorMeta) {
+      return null;
+    }
+
+    const [historyResult, latestPredictionResult, latestEvaluatedResult] = await Promise.all([
+      client.query(
+        `
+          select
+            s.trade_date,
+            s.sector_return_1d,
+            p.probability as prediction_probability
+          from sector_daily_snapshot s
+          left join sector_prediction_daily p
+            on p.prediction_date = s.trade_date
+           and p.sector_code = s.sector_code
+           and ($2::varchar is null or p.model_version = $2)
+          where s.sector_code = $1
+          order by s.trade_date
+        `,
+        [sectorCode, activeSectorModelVersion],
+      ),
+      client.query(
+        `
+          select prediction_date, probability, rank
+          from sector_prediction_daily
+          where sector_code = $1
+            and ($2::varchar is null or model_version = $2)
+          order by prediction_date desc
+          limit 1
+        `,
+        [sectorCode, activeSectorModelVersion],
+      ),
+      client.query(
+        `
+          select
+            prediction_date,
+            predicted_probability,
+            actual_excess_return_5d
+          from prediction_evaluation_daily
+          where entity_type = 'sector'
+            and entity_key = $1
+            and ($2::varchar is null or model_version = $2)
+          order by prediction_date desc
+          limit 1
+        `,
+        [sectorCode, activeSectorModelVersion],
+      ),
+    ]);
+
+    let cumulativeIndex = 100;
+    const history = historyResult.rows.map((row) => {
+      const dailyReturn = toNumber(row.sector_return_1d);
+      if (dailyReturn !== null) {
+        cumulativeIndex *= 1 + dailyReturn;
+      }
+
+      return {
+        tradeDate: toDateText(row.trade_date) ?? "",
+        cumulativeIndex,
+        sectorReturn1d: dailyReturn,
+        predictionProbability: toNumber(row.prediction_probability),
+      };
+    });
+
+    const latestEvaluatedPredictionDate = toDateText(latestEvaluatedResult.rows[0]?.prediction_date);
+    const predictionWindowDates = latestEvaluatedPredictionDate
+      ? history
+          .filter((row) => row.tradeDate >= latestEvaluatedPredictionDate)
+          .slice(0, 6)
+          .map((row) => row.tradeDate)
+      : [];
+
+    return {
+      sectorCode: String(sectorMeta.sector_code),
+      sectorName: String(sectorMeta.sector_name),
+      market: sectorMeta.market ? String(sectorMeta.market) : null,
+      activeSectorModelVersion,
+      latestPredictionDate: toDateText(latestPredictionResult.rows[0]?.prediction_date),
+      latestPredictionProbability: toNumber(latestPredictionResult.rows[0]?.probability),
+      latestPredictionRank: toNumber(latestPredictionResult.rows[0]?.rank),
+      latestEvaluatedPredictionDate,
+      latestEvaluatedProbability: toNumber(latestEvaluatedResult.rows[0]?.predicted_probability),
+      latestEvaluatedExcessReturn: toNumber(latestEvaluatedResult.rows[0]?.actual_excess_return_5d),
+      history,
+      predictionWindowDates,
     };
   } finally {
     client.release();

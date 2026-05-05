@@ -12,11 +12,6 @@ function MetricCard({ label, value, tone = "neutral" }: { label: string; value: 
   );
 }
 
-type SearchParamsInput =
-  | Promise<Record<string, string | string[] | undefined>>
-  | Record<string, string | string[] | undefined>
-  | undefined;
-
 function toSearchParamValue(value: string | string[] | undefined) {
   if (Array.isArray(value)) {
     return value[0] ?? null;
@@ -25,10 +20,12 @@ function toSearchParamValue(value: string | string[] | undefined) {
   return value ?? null;
 }
 
-export default async function HomePage({ searchParams }: { searchParams?: SearchParamsInput }) {
-  const resolvedSearchParams = searchParams && typeof (searchParams as Promise<Record<string, string | string[] | undefined>>).then === "function"
-    ? await searchParams
-    : (searchParams ?? {});
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const resolvedSearchParams = (await searchParams) ?? {};
   const selectedSectorCode = toSearchParamValue(resolvedSearchParams.sector);
   const overview = await getMonitoringOverview(selectedSectorCode);
   const latestPerformance = overview.performance.slice(0, 6);
@@ -80,19 +77,26 @@ export default async function HomePage({ searchParams }: { searchParams?: Search
               <span>Prev rank change</span>
             </div>
             {overview.topSectors.map((row) => (
-              <Link
-                className={`table-row table-row-link ${overview.selectedSectorCode === row.sectorCode ? "selected" : ""}`}
-                href={`/?sector=${encodeURIComponent(row.sectorCode)}`}
+              <div
+                className={`table-row ${overview.selectedSectorCode === row.sectorCode ? "selected" : ""}`}
                 key={`${row.sectorCode}-${row.modelVersion}`}
               >
                 <span>{row.rank}</span>
                 <span>
                   <strong>{row.sectorName}</strong>
                   <small>{row.modelVersion}</small>
+                  <small className="row-actions">
+                    <Link className="row-action-link" href={`/?sector=${encodeURIComponent(row.sectorCode)}`}>
+                      Filter stocks
+                    </Link>
+                    <Link className="row-action-link" href={`/sector/${encodeURIComponent(row.sectorCode)}`}>
+                      Detail
+                    </Link>
+                  </small>
                 </span>
                 <span>{formatRatio(row.probability)}</span>
                 <span>{formatRankChange(row.rank, row.previousRank)}</span>
-              </Link>
+              </div>
             ))}
           </div>
         </section>
