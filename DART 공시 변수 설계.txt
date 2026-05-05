@@ -1,0 +1,154 @@
+DART 공시 변수 설계
+최종 업데이트: 2026-05-04
+
+1. 목적
+- 종목 모델의 단기 예측력을 높이기 위해 DART 공시를 이벤트형 변수로 반영한다.
+- 5영업일 예측 기준에서는 뉴스 원문보다 구조화된 공시 이벤트가 우선이다.
+- 1차 구현은 "원시 공시 저장 -> 일별 종목 집계 -> stock_feature_daily 반영" 구조로 간다.
+
+2. 사용할 OpenDART API
+- corpCode.xml
+  - 목적: 종목코드(stock_code)와 DART corp_code 연결
+  - 결과 저장: dart_corp_code_map
+- list.json
+  - 목적: 기간별 공시 목록 조회
+  - 결과 저장: dart_disclosure_event
+
+공식 개발가이드 기준
+- Corporation code API: 공시 대상 법인 코드 파일 제공
+- Search disclosures API: 공시 목록 검색
+
+3. 저장 계층
+3-1. dart_corp_code_map
+- 역할: ticker <-> corp_code 매핑
+- 주요 컬럼
+  - corp_code
+  - ticker
+  - corp_name
+  - modify_date
+  - is_active
+  - collected_at
+
+3-2. dart_disclosure_event
+- 역할: 공시 원시 이벤트 저장
+- grain: receipt_no 1건 = 공시 1건
+- 주요 컬럼
+  - receipt_no
+  - ticker
+  - corp_code
+  - corp_name
+  - report_name
+  - filed_date
+  - submitter_name
+  - remark
+  - disclosure_type_code
+  - disclosure_type_name
+  - disclosure_detail_code
+  - disclosure_detail_name
+  - event_category
+  - is_final_report
+  - collected_at
+
+3-3. stock_disclosure_daily
+- 역할: 종목별 일간 공시 집계
+- grain: trade_date + ticker
+- 주요 컬럼
+  - total_disclosure_count
+  - periodic_disclosure_count
+  - major_issue_disclosure_count
+  - issuance_disclosure_count
+  - equity_disclosure_count
+  - other_disclosure_count
+  - is_earnings_disclosure_day
+  - is_capital_raise_disclosure_day
+  - is_order_contract_disclosure_day
+  - is_major_corporate_action_day
+
+4. stock_feature_daily 에 반영할 공시 변수
+- total_disclosure_count_1d
+- periodic_disclosure_count_1d
+- major_issue_disclosure_count_1d
+- issuance_disclosure_count_1d
+- equity_disclosure_count_1d
+- other_disclosure_count_1d
+- is_earnings_disclosure_day
+- is_capital_raise_disclosure_day
+- is_order_contract_disclosure_day
+- is_major_corporate_action_day
+
+5. event_category 분류 기준
+report_name 또는 disclosure_detail_code 기준으로 아래 카테고리로 매핑한다.
+
+5-1. earnings
+- 분기/반기/사업보고서
+- 실적 관련 정정공시
+- 잠정실적 관련 공시
+
+5-2. capital_raise
+- 유상증자 결정
+- 무상증자 결정
+- 전환사채/신주인수권부사채/교환사채 발행
+
+5-3. order_contract
+- 단일판매·공급계약체결
+- 대규모 수주/계약 공시
+
+5-4. major_corporate_action
+- 타법인 주식 취득/처분
+- 유형자산 취득/처분
+- 영업양수/양도
+- 합병/분할
+- 소송/회생/부도/영업정지
+
+5-5. uncategorized
+- 위 규칙에 걸리지 않는 나머지 공시
+
+6. 배치 구조
+6-1. 수동/저주기
+- sync_dart_corp_code_map
+  - 일 1회가 아니라 월 1회 또는 필요 시 수동 갱신
+  - corpCode.xml 전체를 내려받아 ticker 매핑 갱신
+
+6-2. 일별
+- collect_dart_disclosure_events
+  - trade_date 기준 list.json 조회
+  - 원시 이벤트 upsert
+- build_stock_disclosure_daily
+  - event_category 기준 종목별 일간 집계
+- build_feature_target_daily
+  - stock_feature_daily 에 disclosure 변수 조인
+
+7. 종목 모델에서 기대하는 역할
+- 단순 가격 모멘텀으로 설명 안 되는 단기 급등락 설명
+- 업종 내 상대강도 판단 보완
+- 수주/증자/실적/소송 등 구조적 이벤트 반영
+
+8. 우선순위
+1차
+- total_disclosure_count_1d
+- major_issue_disclosure_count_1d
+- is_earnings_disclosure_day
+- is_capital_raise_disclosure_day
+- is_order_contract_disclosure_day
+- is_major_corporate_action_day
+
+2차
+- periodic_disclosure_count_1d
+- issuance_disclosure_count_1d
+- equity_disclosure_count_1d
+- other_disclosure_count_1d
+
+9. 사용자 준비 사항
+- OpenDART API key 필요
+- .env 에 아래 값 추가 예정
+  - DART_API_KEY
+  - DART_BASE_URL=https://opendart.fss.or.kr/api
+
+10. 다음 구현 작업
+1. dart collector 추가
+  - scripts/collectors/dart.mjs
+2. corp code map 적재 스크립트 추가
+3. disclosure event 적재 스크립트 추가
+4. stock_disclosure_daily 집계 로직 추가
+5. stock_feature_daily 에 조인
+6. 종목 모델 재학습

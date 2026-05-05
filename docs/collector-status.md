@@ -4,26 +4,40 @@
 
 - Batch orchestration and artifact logging
 - PostgreSQL schema definition and apply script
-- FRED market factor collector implementation
-- ECOS market factor collector implementation
-- Market factor upsert path when DATABASE_URL is configured
+- FRED market factor collector implementation and DB upsert
+- ECOS market factor collector implementation and DB upsert
+- KRX stock master payload normalization
+- KRX stock daily payload normalization
+- KRX market index payload normalization
+- Partial-success batch execution when one collector fails
 
-## Waiting for configuration
+## Configured in current environment
 
-- `KRX_API_KEY`
-- `KRX_STOCK_MASTER_URL`
-- `KRX_SECTOR_CLASSIFICATION_URL`
-- `KRX_MARKET_FACTORS_URL`
-- `KRX_STOCK_DAILY_URL`
-- `KRX_STOCK_FLOW_URL`
-- `KRX_STOCK_FOREIGN_URL`
-- `ECOS_API_KEY`
-- `ECOS_*` series codes
+- `DATABASE_URL`
 - `FRED_API_KEY`
+- `ECOS_API_KEY`
+- `ECOS_USDKRW_STAT_CODE`
+- `ECOS_USDKRW_ITEM_CODE1`
+- `ECOS_KR10Y_STAT_CODE`
+- `ECOS_KR10Y_ITEM_CODE1`
+- `KRX_API_KEY`
+- `KRX_STOCK_MASTER_KOSPI_URL`
+- `KRX_STOCK_MASTER_KOSDAQ_URL`
+- `KRX_STOCK_DAILY_KOSPI_URL`
+- `KRX_STOCK_DAILY_KOSDAQ_URL`
+- `KRX_MARKET_INDEX_KOSPI_URL`
+- `KRX_MARKET_INDEX_KOSDAQ_URL`
+
+## Current runtime status
+
+- FRED requests succeed and `market_daily_factors` rows are being written
+- ECOS requests succeed with the configured codes
+- KRX requests currently return `401` because the API services are still pending approval
+- Docker/PostgreSQL-backed batch logging is working
 
 ## Current limitations
 
-- KRX payload normalization is not implemented yet
 - KRX holiday calendar ingestion is not implemented yet
-- Stock master and stock daily upsert paths are not implemented yet
-- Sector snapshot build is still a planned step
+- `sector_daily_snapshot` build is still a planned step
+- Investor flow and foreign ownership collectors are excluded from the MVP because they require separate licensed data
+- Stock-to-industry classification is still limited to security group / market segment fields from KRX stock master APIs

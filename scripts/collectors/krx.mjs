@@ -1,5 +1,5 @@
-﻿import { getEnv } from "../lib/env.mjs";
-import { asDecimalPercent, fetchJson, toCompactDate } from "../lib/http.mjs";
+import { getEnv } from "../lib/env.mjs";
+import { asDecimalPercent, fetchJson, sleep, toCompactDate } from "../lib/http.mjs";
 
 function isConfigured(value) {
   return Boolean(value) && !value.startsWith("your-");
@@ -28,13 +28,29 @@ async function fetchKrx(url, tradeDate) {
     return null;
   }
 
-  const target = new URL(url);
-  target.searchParams.set("basDd", toCompactDate(tradeDate));
-  return fetchJson(target.toString(), {
+  return fetchJson(url, {
+    method: "POST",
     headers: {
       AUTH_KEY: apiKey,
+      "Content-Type": "application/json",
     },
+    body: JSON.stringify({
+      basDd: toCompactDate(tradeDate),
+    }),
   });
+}
+
+async function fetchKrxSequential(urls, tradeDate, delayMs = 120) {
+  const payloads = [];
+
+  for (let index = 0; index < urls.length; index += 1) {
+    payloads.push(await fetchKrx(urls[index], tradeDate));
+    if (index < urls.length - 1) {
+      await sleep(delayMs);
+    }
+  }
+
+  return payloads;
 }
 
 function pending(collector, detail) {
@@ -95,8 +111,8 @@ function mapIndexRowsToMarketFactors(kospiPayload, kosdaqPayload, tradeDate) {
   const kospiRows = kospiPayload?.OutBlock_1 ?? [];
   const kosdaqRows = kosdaqPayload?.OutBlock_1 ?? [];
 
-  const kospi = findIndexRow(kospiRows, ["코스피", "코스피지수"]);
-  const kosdaq = findIndexRow(kosdaqRows, ["코스닥", "코스닥지수", "코스닥(외국주포함)"]);
+  const kospi = findIndexRow(kospiRows, ["\uCF54\uC2A4\uD53C", "\uCF54\uC2A4\uD53C\uC9C0\uC218"]);
+  const kosdaq = findIndexRow(kosdaqRows, ["\uCF54\uC2A4\uB2E5", "\uCF54\uC2A4\uB2E5\uC9C0\uC218", "\uCF54\uC2A4\uB2E5(\uC678\uAD6D\uC8FC\uD3EC\uD568)"]);
 
   return {
     trade_date: tradeDate,
@@ -104,6 +120,9 @@ function mapIndexRowsToMarketFactors(kospiPayload, kosdaqPayload, tradeDate) {
     kospi_return_1d: kospi ? asDecimalPercent(kospi.FLUC_RT) : undefined,
     kosdaq_close: kosdaq ? toNumber(kosdaq.CLSPRC_IDX) : undefined,
     kosdaq_return_1d: kosdaq ? asDecimalPercent(kosdaq.FLUC_RT) : undefined,
+    kosdaq_excess_return_vs_kospi: kospi && kosdaq
+      ? asDecimalPercent(Number(kosdaq.FLUC_RT) - Number(kospi.FLUC_RT))
+      : undefined,
     market_total_trading_value: (toNumber(kospi?.ACC_TRDVAL) ?? 0) + (toNumber(kosdaq?.ACC_TRDVAL) ?? 0),
     collected_at: new Date().toISOString(),
   };
@@ -120,10 +139,7 @@ export async function collectStockMaster(tradeDate) {
     );
   }
 
-  const [kospiPayload, kosdaqPayload] = await Promise.all([
-    fetchKrx(kospiUrl, tradeDate),
-    fetchKrx(kosdaqUrl, tradeDate),
-  ]);
+  const [kospiPayload, kosdaqPayload] = await fetchKrxSequential([kospiUrl, kosdaqUrl], tradeDate);
 
   const rows = [...mapMasterRows(kospiPayload), ...mapMasterRows(kosdaqPayload)];
 
@@ -147,10 +163,7 @@ export async function collectMarketFactors(tradeDate) {
     );
   }
 
-  const [kospiPayload, kosdaqPayload] = await Promise.all([
-    fetchKrx(kospiUrl, tradeDate),
-    fetchKrx(kosdaqUrl, tradeDate),
-  ]);
+  const [kospiPayload, kosdaqPayload] = await fetchKrxSequential([kospiUrl, kosdaqUrl], tradeDate);
   const row = mapIndexRowsToMarketFactors(kospiPayload, kosdaqPayload, tradeDate);
   return {
     collector: "collectMarketFactors",
@@ -173,10 +186,7 @@ export async function collectStockDailySnapshot(tradeDate) {
     );
   }
 
-  const payloads = await Promise.all([
-    fetchKrx(kospiUrl, tradeDate),
-    fetchKrx(kosdaqUrl, tradeDate),
-  ]);
+  const payloads = await fetchKrxSequential([kospiUrl, kosdaqUrl], tradeDate);
   const rows = payloads.flatMap((payload) => mapStockDailyRows(payload, tradeDate));
 
   return {

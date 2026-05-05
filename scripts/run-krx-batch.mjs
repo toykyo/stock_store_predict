@@ -1,16 +1,36 @@
-﻿import { BATCH_STEPS, SOURCE_MAP } from "./batch-config.mjs";
+import { BATCH_STEPS, SOURCE_MAP } from "./batch-config.mjs";
 import { insertBatchRun, insertBatchStep } from "./batch-log.mjs";
+import { collectDartDisclosureEvents } from "./collectors/dart.mjs";
 import { collectEcosFactors } from "./collectors/ecos.mjs";
 import { collectFredFactors } from "./collectors/fred.mjs";
 import { collectMarketFactors, collectStockDailySnapshot, collectStockMaster } from "./collectors/krx.mjs";
 import { closePool, withClient } from "./lib/db.mjs";
+import { getIndustryClassificationStatus } from "./repositories/industry-classification.mjs";
 import { getEnv } from "./lib/env.mjs";
 import { writeArtifact } from "./lib/files.mjs";
+import { sleep } from "./lib/http.mjs";
+import {
+  rebuildStockDisclosureDaily,
+  upsertDartCorpCodeRows,
+  upsertDartDisclosureEventRows,
+} from "./repositories/dart-disclosure.mjs";
 import {
   upsertMarketDailyFactors,
   upsertStockDailySnapshotRows,
   upsertStockMasterRows,
 } from "./repositories/market-daily-factors.mjs";
+import {
+  getActiveModels,
+  getLatestPredictionFeatureRows,
+  rebuildFeatureAndTargetTables,
+  rebuildSectorDailySnapshot,
+  refreshPredictionEvaluations,
+  replaceSectorPredictions,
+  replaceStockPredictions,
+} from "./repositories/prediction-pipeline.mjs";
+import { predictProbability } from "./lib/logistic-regression.mjs";
+
+const STOCK_PREDICTION_TOP_SECTOR_COUNT = 5;
 
 function parseArgs(argv) {
   const args = {
@@ -19,12 +39,14 @@ function parseArgs(argv) {
     from: null,
     to: null,
   };
+  const positionalDates = [];
 
   for (let index = 0; index < argv.length; index += 1) {
     const raw = argv[index];
 
     if (!raw.startsWith("--")) {
       if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        positionalDates.push(raw);
         args.date = raw;
       }
       continue;
@@ -45,6 +67,11 @@ function parseArgs(argv) {
       args[key] = next;
       index += 1;
     }
+  }
+
+  if (args.mode === "backfill" && (!args.from || !args.to) && positionalDates.length >= 2) {
+    args.from ??= positionalDates[0];
+    args.to ??= positionalDates[1];
   }
 
   return args;
@@ -91,7 +118,7 @@ function createStepLog(step, order, tradeDate) {
     status: "planned",
     started_at: null,
     finished_at: null,
-    notes: `${tradeDate} 기준 ${step.description}`,
+    notes: `${tradeDate} ??????? ${step.description}`,
     output: step.output,
   };
 }
@@ -148,6 +175,187 @@ async function maybePersistStockDaily(rows) {
   return true;
 }
 
+async function maybePersistDartDisclosure(result) {
+  if (!getEnv("DATABASE_URL") || !result) {
+    return false;
+  }
+
+  await withClient(async (client) => {
+    await upsertDartCorpCodeRows(client, result.corpRows ?? []);
+    await upsertDartDisclosureEventRows(client, result.rows ?? []);
+  });
+
+  return true;
+}
+
+async function buildQualityCheckResult() {
+  if (!getEnv("DATABASE_URL")) {
+    return {
+      status: "planned",
+      notes: "Quality checks skipped because DATABASE_URL is missing.",
+    };
+  }
+
+  const status = await withClient((client) => getIndustryClassificationStatus(client, 30));
+  const warnings = [];
+
+  if (status.isStale) {
+    warnings.push(`industry classification is stale or empty; last update: ${status.lastCollectedAt ? status.lastCollectedAt.toISOString() : "never"}`);
+  }
+
+  if (status.hasMissing) {
+    warnings.push(`${status.missingCount} stock_master rows are missing current industry classification`);
+  }
+
+  return {
+    status: warnings.length > 0 ? "warning" : "completed",
+    notes: warnings.length > 0
+      ? `WARNING: ${warnings.join(" | ")}`
+      : `Industry classification freshness OK. rows=${status.classificationCount}, age_days=${status.ageDays}`,
+  };
+}
+
+function rankPredictionRows(rows) {
+  return rows
+    .sort((left, right) => right.probability - left.probability)
+    .map((row, index) => ({
+      ...row,
+      score: row.probability,
+      rank: index + 1,
+    }));
+}
+
+async function buildSectorSnapshotResult() {
+  if (!getEnv("DATABASE_URL")) {
+    return {
+      status: "planned",
+      notes: "Sector snapshot build skipped because DATABASE_URL is missing.",
+    };
+  }
+
+  await withClient(async (client) => {
+    await rebuildSectorDailySnapshot(client);
+  });
+
+  return {
+    status: "completed",
+    notes: "sector_daily_snapshot rebuilt from stock_daily_snapshot and stock_industry_classification.",
+  };
+}
+
+async function buildFeatureTargetResult() {
+  if (!getEnv("DATABASE_URL")) {
+    return {
+      status: "planned",
+      notes: "Feature/target build skipped because DATABASE_URL is missing.",
+    };
+  }
+
+  await withClient(async (client) => {
+    await rebuildFeatureAndTargetTables(client);
+  });
+
+  return {
+    status: "completed",
+    notes: "sector/stock feature and target tables rebuilt.",
+  };
+}
+
+async function buildStockDisclosureDailyResult() {
+  if (!getEnv("DATABASE_URL")) {
+    return {
+      status: "planned",
+      notes: "Stock disclosure daily build skipped because DATABASE_URL is missing.",
+    };
+  }
+
+  await withClient(async (client) => {
+    await rebuildStockDisclosureDaily(client);
+  });
+
+  return {
+    status: "completed",
+    notes: "stock_disclosure_daily rebuilt from dart_disclosure_event.",
+  };
+}
+
+async function runPredictionModelsResult() {
+  if (!getEnv("DATABASE_URL")) {
+    return {
+      status: "planned",
+      notes: "Prediction run skipped because DATABASE_URL is missing.",
+    };
+  }
+
+  return withClient(async (client) => {
+    const models = await getActiveModels(client);
+    if (models.length === 0) {
+      return {
+        status: "planned",
+        notes: "No active models found. Run npm run model:train first.",
+      };
+    }
+
+    const summaries = [];
+    const sectorModelRow = models.find((row) => row.model_type === "sector");
+    const stockModelRow = models.find((row) => row.model_type === "stock");
+    let selectedSectorCodes = [];
+
+    if (sectorModelRow) {
+      const metadata = sectorModelRow.metadata ?? {};
+      if (!metadata.model) {
+        summaries.push("sector: skipped (missing model metadata)");
+      } else {
+        const featureRows = await getLatestPredictionFeatureRows(client, "sector");
+        if (featureRows.length === 0) {
+          summaries.push("sector: skipped (no feature rows)");
+        } else {
+          const predictionDate = featureRows[0].trade_date;
+          const ranked = rankPredictionRows(featureRows.map((row) => ({
+            sector_code: row.sector_code,
+            sector_name: row.sector_name,
+            probability: predictProbability(metadata.model, row),
+          })));
+          selectedSectorCodes = ranked.slice(0, STOCK_PREDICTION_TOP_SECTOR_COUNT).map((row) => row.sector_code);
+          await replaceSectorPredictions(client, predictionDate, sectorModelRow.model_version, ranked);
+          summaries.push(`sector: ${ranked.length} rows for ${predictionDate} | selected sectors: ${selectedSectorCodes.length}`);
+        }
+      }
+    }
+
+    if (stockModelRow) {
+      const metadata = stockModelRow.metadata ?? {};
+      if (!metadata.model) {
+        summaries.push("stock: skipped (missing model metadata)");
+      } else if (selectedSectorCodes.length === 0) {
+        summaries.push("stock: skipped (no selected sectors)");
+      } else {
+        const featureRows = await getLatestPredictionFeatureRows(client, "stock", { sectorCodes: selectedSectorCodes });
+        if (featureRows.length === 0) {
+          summaries.push("stock: skipped (no feature rows inside selected sectors)");
+        } else {
+          const predictionDate = featureRows[0].trade_date;
+          const ranked = rankPredictionRows(featureRows.map((row) => ({
+            ticker: row.ticker,
+            sector_code: row.sector_code,
+            sector_name: row.sector_name,
+            probability: predictProbability(metadata.model, row),
+          })));
+          await replaceStockPredictions(client, predictionDate, stockModelRow.model_version, ranked);
+          summaries.push(`stock: ${ranked.length} rows for ${predictionDate} | sector filtered`);
+        }
+      }
+    }
+
+    await refreshPredictionEvaluations(client);
+
+    return {
+      status: "completed",
+      notes: summaries.join(" | "),
+    };
+  });
+}
+
 async function executeStep(stepName, tradeDate) {
   switch (stepName) {
     case "validate_trade_date":
@@ -166,19 +374,24 @@ async function executeStep(stepName, tradeDate) {
       };
     }
     case "load_market_daily_factors": {
-      const [krx, ecos, fred] = await Promise.all([
+      const results = await Promise.allSettled([
         collectMarketFactors(tradeDate),
         collectEcosFactors(tradeDate),
         collectFredFactors(tradeDate),
       ]);
+      const krx = settledCollectorResult(results[0], "collectMarketFactors");
+      const ecos = settledCollectorResult(results[1], "collectEcosFactors");
+      const fred = settledCollectorResult(results[2], "collectFredFactors");
       const mergedRow = mergeRows(krx.row, ecos.row, fred.row);
       const persisted = await maybePersistMarketFactors(mergedRow);
       const statuses = [krx.status, ecos.status, fred.status];
       const status = statuses.includes("completed")
         ? "completed"
-        : statuses.includes("blocked")
-          ? "blocked"
-          : "planned";
+        : statuses.includes("failed")
+          ? "failed"
+          : statuses.includes("blocked")
+            ? "blocked"
+            : "planned";
       return {
         status,
         notes: [
@@ -197,19 +410,45 @@ async function executeStep(stepName, tradeDate) {
         notes: `${result.detail} | ${persisted ? "stock_daily_snapshot upserted." : "DB upsert skipped."}`,
       };
     }
+    case "load_dart_disclosure_events": {
+      const result = await collectDartDisclosureEvents(tradeDate);
+      const persisted = await maybePersistDartDisclosure(result);
+      return {
+        status: result.status,
+        notes: `${result.detail} | ${persisted ? "dart disclosure rows upserted." : "DB upsert skipped."}`,
+      };
+    }
+    case "build_stock_disclosure_daily":
+      return buildStockDisclosureDailyResult();
     case "build_sector_daily_snapshot":
-      return {
-        status: "planned",
-        notes: "Sector snapshot build is not implemented yet. Use KRX index series plus stock snapshots in the next step.",
-      };
+      return buildSectorSnapshotResult();
+    case "build_feature_target_daily":
+      return buildFeatureTargetResult();
+    case "run_prediction_models":
+      return runPredictionModelsResult();
     case "run_quality_checks":
-      return {
-        status: "planned",
-        notes: "Quality checks will run after raw tables have been populated.",
-      };
+      return buildQualityCheckResult();
     default:
       throw new Error(`Unknown batch step: ${stepName}`);
   }
+}
+
+function normalizeStepError(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function settledCollectorResult(result, fallbackCollector) {
+  if (result.status === 'fulfilled') {
+    return result.value;
+  }
+
+  return {
+    collector: fallbackCollector,
+    status: 'failed',
+    detail: normalizeStepError(result.reason),
+    row: null,
+    rows: [],
+  };
 }
 
 async function persistPlan(runId, payload) {
@@ -254,6 +493,8 @@ async function run() {
   const args = parseArgs(process.argv.slice(2));
   const runId = `${args.mode}-${Date.now()}`;
   const targets = buildRunTargets(args);
+  const derivedSteps = new Set(["build_stock_disclosure_daily", "build_sector_daily_snapshot", "build_feature_target_daily", "run_prediction_models"]);
+  const requestPaceMs = Number(getEnv("BATCH_TARGET_DELAY_MS", "250"));
 
   const payload = {
     run_id: runId,
@@ -274,11 +515,30 @@ async function run() {
     }
 
     for (const step of target.steps) {
+      if (
+        args.mode === "backfill" &&
+        derivedSteps.has(step.step_name) &&
+        target.trade_date !== payload.targets.at(-1)?.trade_date
+      ) {
+        step.status = "skipped";
+        step.notes = "Deferred until the final backfill date to avoid rebuilding derived tables repeatedly.";
+        continue;
+      }
+
       step.started_at = new Date().toISOString();
-      const result = await executeStep(step.step_name, target.trade_date);
-      step.status = result.status;
-      step.notes = result.notes;
+      try {
+        const result = await executeStep(step.step_name, target.trade_date);
+        step.status = result.status;
+        step.notes = result.notes;
+      } catch (error) {
+        step.status = "failed";
+        step.notes = normalizeStepError(error);
+      }
       step.finished_at = new Date().toISOString();
+    }
+
+    if (requestPaceMs > 0 && target !== payload.targets.at(-1)) {
+      await sleep(requestPaceMs);
     }
   }
 

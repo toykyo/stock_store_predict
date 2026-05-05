@@ -1,418 +1,348 @@
-import { DEFAULT_FILTERS, filterStocks, type FilterState, type Stock } from "./shared";
+import { Pool } from "pg";
 
-type UniverseStock = Stock & {
-  symbol: string;
-};
+import { DEFAULT_FILTERS, type FilterState, type Stock, type StocksApiResponse } from "./shared";
 
-const STOCK_UNIVERSE: UniverseStock[] = [
-  {
-    ticker: "005930",
-    symbol: "005930.KS",
-    name: "삼성전자",
-    market: "KOSPI",
-    sector: "반도체",
-    price: 74200,
-    changePct: 1.82,
-    marketCap: "443조",
-    per: 14.1,
-    pbr: 1.4,
-    roe: 11.8,
-    dividendYield: 2.6,
-    volumeRankPct: 18,
-    momentum20d: 8.4,
-    score: 92,
-    reasons: ["저PER", "거래대금 상위", "20일 상승 추세"],
-    risks: ["메모리 가격 변동성", "외국인 수급 둔화 가능성"],
-  },
-  {
-    ticker: "000660",
-    symbol: "000660.KS",
-    name: "SK하이닉스",
-    market: "KOSPI",
-    sector: "반도체",
-    price: 186500,
-    changePct: 2.44,
-    marketCap: "136조",
-    per: 13.6,
-    pbr: 1.9,
-    roe: 15.2,
-    dividendYield: 1.1,
-    volumeRankPct: 12,
-    momentum20d: 12.1,
-    score: 95,
-    reasons: ["추세 강함", "실적 회복", "ROE 우수"],
-    risks: ["단기 급등 부담", "업황 민감도 높음"],
-  },
-  {
-    ticker: "042700",
-    symbol: "042700.KS",
-    name: "한미반도체",
-    market: "KOSPI",
-    sector: "반도체",
-    price: 121800,
-    changePct: -0.64,
-    marketCap: "11조",
-    per: 12.3,
-    pbr: 2.8,
-    roe: 18.7,
-    dividendYield: 0.8,
-    volumeRankPct: 24,
-    momentum20d: 5.8,
-    score: 86,
-    reasons: ["장비 수요 기대", "ROE 상위", "밸류 부담 제한적"],
-    risks: ["수주 공백 가능성", "변동성 확대 구간"],
-  },
-  {
-    ticker: "214150",
-    symbol: "214150.KQ",
-    name: "클래시스",
-    market: "KOSDAQ",
-    sector: "의료기기",
-    price: 56600,
-    changePct: 1.73,
-    marketCap: "3조",
-    per: 14.8,
-    pbr: 3.0,
-    roe: 23.6,
-    dividendYield: 0.8,
-    volumeRankPct: 19,
-    momentum20d: 9.1,
-    score: 88,
-    reasons: ["미용의료기기 강세", "ROE 우수", "실적 안정"],
-    risks: ["해외 매출 둔화 가능성", "밸류 재평가 부담"],
-  },
-  {
-    ticker: "137310",
-    symbol: "137310.KQ",
-    name: "에스디바이오센서",
-    market: "KOSDAQ",
-    sector: "의료기기",
-    price: 11820,
-    changePct: 0.58,
-    marketCap: "1조",
-    per: 10.2,
-    pbr: 1.1,
-    roe: 10.8,
-    dividendYield: 1.9,
-    volumeRankPct: 27,
-    momentum20d: 5.4,
-    score: 80,
-    reasons: ["저PER", "진단기기 대표주"],
-    risks: ["코로나 특수 종료", "성장성 둔화"],
-  },
-  {
-    ticker: "247540",
-    symbol: "247540.KQ",
-    name: "에코프로비엠",
-    market: "KOSDAQ",
-    sector: "2차전지",
-    price: 238000,
-    changePct: 0.72,
-    marketCap: "23조",
-    per: 28.6,
-    pbr: 4.2,
-    roe: 14.3,
-    dividendYield: 0.3,
-    volumeRankPct: 14,
-    momentum20d: 6.1,
-    score: 74,
-    reasons: ["성장성", "수급 집중"],
-    risks: ["밸류에이션 부담", "소재 가격 민감"],
-  },
-  {
-    ticker: "066970",
-    symbol: "066970.KQ",
-    name: "엘앤에프",
-    market: "KOSDAQ",
-    sector: "2차전지",
-    price: 127600,
-    changePct: -1.14,
-    marketCap: "4조",
-    per: 19.8,
-    pbr: 2.6,
-    roe: 12.2,
-    dividendYield: 0.1,
-    volumeRankPct: 28,
-    momentum20d: 4.1,
-    score: 70,
-    reasons: ["실적 턴어라운드 기대"],
-    risks: ["단기 수익성 저하", "변동성 큼"],
-  },
-  {
-    ticker: "196170",
-    symbol: "196170.KQ",
-    name: "알테오젠",
-    market: "KOSDAQ",
-    sector: "바이오",
-    price: 301500,
-    changePct: 3.15,
-    marketCap: "16조",
-    per: 41.2,
-    pbr: 7.4,
-    roe: 17.1,
-    dividendYield: 0,
-    volumeRankPct: 10,
-    momentum20d: 16.4,
-    score: 81,
-    reasons: ["기술 이전 기대", "강한 모멘텀"],
-    risks: ["이벤트 의존도 높음", "밸류 부담 매우 큼"],
-  },
-  {
-    ticker: "035420",
-    symbol: "035420.KS",
-    name: "NAVER",
-    market: "KOSPI",
-    sector: "인터넷",
-    price: 214000,
-    changePct: 0.95,
-    marketCap: "34조",
-    per: 17.2,
-    pbr: 1.3,
-    roe: 8.6,
-    dividendYield: 0.6,
-    volumeRankPct: 22,
-    momentum20d: 3.8,
-    score: 68,
-    reasons: ["광고 회복", "AI 기대감"],
-    risks: ["ROE 약함", "성장률 둔화"],
-  },
-  {
-    ticker: "035720",
-    symbol: "035720.KS",
-    name: "카카오",
-    market: "KOSPI",
-    sector: "플랫폼",
-    price: 45600,
-    changePct: 1.12,
-    marketCap: "20조",
-    per: 12.7,
-    pbr: 1.0,
-    roe: 10.6,
-    dividendYield: 0,
-    volumeRankPct: 25,
-    momentum20d: 6.4,
-    score: 79,
-    reasons: ["반등 추세", "저평가 구간"],
-    risks: ["규제 민감", "광고 경기 영향"],
-  },
-  {
-    ticker: "263750",
-    symbol: "263750.KQ",
-    name: "펄어비스",
-    market: "KOSDAQ",
-    sector: "게임",
-    price: 39800,
-    changePct: 2.32,
-    marketCap: "3조",
-    per: 14.9,
-    pbr: 1.7,
-    roe: 11.2,
-    dividendYield: 0,
-    volumeRankPct: 29,
-    momentum20d: 8.2,
-    score: 82,
-    reasons: ["신작 기대", "거래 증가"],
-    risks: ["실적 변동성", "출시 일정 리스크"],
-  },
-  {
-    ticker: "005380",
-    symbol: "005380.KS",
-    name: "현대차",
-    market: "KOSPI",
-    sector: "자동차",
-    price: 243500,
-    changePct: 0.88,
-    marketCap: "51조",
-    per: 6.3,
-    pbr: 0.7,
-    roe: 13.4,
-    dividendYield: 4.2,
-    volumeRankPct: 17,
-    momentum20d: 7.3,
-    score: 93,
-    reasons: ["저PER", "주주환원", "실적 견조"],
-    risks: ["환율 민감", "미국 관세 변수"],
-  },
-  {
-    ticker: "105560",
-    symbol: "105560.KS",
-    name: "KB금융",
-    market: "KOSPI",
-    sector: "금융",
-    price: 84900,
-    changePct: 1.04,
-    marketCap: "33조",
-    per: 5.1,
-    pbr: 0.5,
-    roe: 10.4,
-    dividendYield: 5.0,
-    volumeRankPct: 16,
-    momentum20d: 5.9,
-    score: 91,
-    reasons: ["밸류 매력", "배당 매력"],
-    risks: ["금리 하락 영향", "대손비용 변수"],
-  },
-  {
-    ticker: "012450",
-    symbol: "012450.KS",
-    name: "한화에어로스페이스",
-    market: "KOSPI",
-    sector: "방산",
-    price: 384000,
-    changePct: 2.18,
-    marketCap: "18조",
-    per: 14.5,
-    pbr: 2.4,
-    roe: 18.1,
-    dividendYield: 0.7,
-    volumeRankPct: 20,
-    momentum20d: 11.4,
-    score: 90,
-    reasons: ["수주 잔고", "강한 추세"],
-    risks: ["수출 일정 변동", "정책 변수"],
-  },
-  {
-    ticker: "017670",
-    symbol: "017670.KS",
-    name: "SK텔레콤",
-    market: "KOSPI",
-    sector: "통신",
-    price: 56500,
-    changePct: 0.41,
-    marketCap: "12조",
-    per: 10.9,
-    pbr: 0.9,
-    roe: 10.3,
-    dividendYield: 6.2,
-    volumeRankPct: 30,
-    momentum20d: 5.1,
-    score: 84,
-    reasons: ["배당 안정", "방어주 성격"],
-    risks: ["성장성 제한", "규제 이슈"],
-  },
-  {
-    ticker: "TSM",
-    symbol: "TSM",
-    name: "TSMC ADR",
-    market: "US",
-    sector: "반도체",
-    price: 168.3,
-    changePct: 1.26,
-    marketCap: "$870B",
-    per: 21.4,
-    pbr: 5.6,
-    roe: 24.8,
-    dividendYield: 1.4,
-    volumeRankPct: 26,
-    momentum20d: 7.7,
-    score: 88,
-    reasons: ["업종 대표주", "ROE 우수"],
-    risks: ["미국 시장 밸류 부담", "환율 영향"],
-  },
+const ALL_MARKET = "\uC804\uCCB4";
+const UNCATEGORIZED = "\uBBF8\uBD84\uB958";
+const COMMON_STOCK = "\uBCF4\uD1B5\uC8FC";
+const RISK_SEGMENTS = [
+  "SPAC(\uC18C\uC18D\uBD80\uC5C6\uC74C)",
+  "\uAD00\uB9AC\uC885\uBAA9(\uC18C\uC18D\uBD80\uC5C6\uC74C)",
+  "\uD22C\uC790\uC8FC\uC758\uD658\uAE30\uC885\uBAA9(\uC18C\uC18D\uBD80\uC5C6\uC74C)",
 ];
 
-type YahooQuote = {
-  symbol?: string;
-  regularMarketPrice?: number;
-  regularMarketChangePercent?: number;
-  marketCap?: number;
-  trailingPE?: number;
-  priceToBook?: number;
-  dividendYield?: number;
-};
+let pool: Pool | undefined;
 
-function formatMarketCap(value: number | undefined, market: Stock["market"]) {
-  if (!value || Number.isNaN(value)) {
-    return "-";
+function getPool() {
+  if (!pool) {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 5,
+    });
   }
 
-  if (market === "US") {
-    return new Intl.NumberFormat("en-US", {
-      notation: "compact",
-      compactDisplay: "short",
-      maximumFractionDigits: 1,
-    }).format(value);
+  return pool;
+}
+
+function toNumber(value: unknown) {
+  if (value === null || value === undefined) {
+    return null;
   }
 
-  return `${new Intl.NumberFormat("ko-KR", {
-    notation: "compact",
-    compactDisplay: "short",
-    maximumFractionDigits: 1,
-  }).format(value)}원`;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-function scoreStock(stock: Stock) {
-  const perScore = Math.max(0, 25 - stock.per);
-  const roeScore = Math.min(30, stock.roe * 1.5);
-  const momentumScore = Math.max(0, stock.momentum20d * 2);
-  const volumeScore = Math.max(0, 30 - stock.volumeRankPct);
-  return Math.round(perScore + roeScore + momentumScore + volumeScore);
+function dateToText(value: unknown) {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return String(value).slice(0, 10);
 }
 
-export async function getStocks(filters: FilterState = DEFAULT_FILTERS) {
-  const baseStocks = STOCK_UNIVERSE.map(({ symbol: _symbol, ...stock }) => stock);
+function normalizeFilters(filters: Partial<FilterState>): FilterState {
+  return {
+    ...DEFAULT_FILTERS,
+    ...filters,
+  };
+}
+
+function buildWhere(filters: FilterState) {
+  const clauses = ["s.trade_date = latest.latest_trade_date"];
+  const values: unknown[] = [];
+
+  if (filters.market !== ALL_MARKET) {
+    values.push(filters.market);
+    clauses.push(`s.market = $${values.length}`);
+  }
+
+  if (filters.sector !== ALL_MARKET) {
+    values.push(filters.sector);
+    clauses.push(`coalesce(c.sector_name, m.sector_name, $${values.length + 1}) = $${values.length}`);
+    values.push(UNCATEGORIZED);
+  }
+
+  if (filters.query.trim()) {
+    values.push(`%${filters.query.trim()}%`);
+    clauses.push(`(m.name_kr ilike $${values.length} or m.ticker ilike $${values.length})`);
+  }
+
+  if (Number.isFinite(filters.minChangePct)) {
+    values.push(filters.minChangePct / 100);
+    clauses.push(`coalesce(s.change_rate, -999) >= $${values.length}`);
+  }
+
+  if (Number.isFinite(filters.minTradingValue) && filters.minTradingValue > 0) {
+    values.push(filters.minTradingValue * 100000000);
+    clauses.push(`coalesce(s.trading_value, 0) >= $${values.length}`);
+  }
+
+  if (filters.onlyCommonStock) {
+    values.push(COMMON_STOCK);
+    clauses.push(`m.security_type_name = $${values.length}`);
+  }
+
+  if (filters.excludeRiskSegments) {
+    values.push(RISK_SEGMENTS);
+    clauses.push(`not (coalesce(m.market_segment_name, '') = any($${values.length}))`);
+  }
+
+  return {
+    whereSql: clauses.join(" and "),
+    values,
+  };
+}
+
+function buildOrderBy(sort: string | null) {
+  switch (sort) {
+    case "tradingValue":
+      return "coalesce(s.trading_value, 0) desc";
+    case "change":
+      return "coalesce(s.change_rate, -999) desc";
+    case "marketCap":
+      return "coalesce(s.market_cap, 0) desc";
+    case "momentum":
+      return "coalesce(s.momentum_20d, -999) desc";
+    default:
+      return "score desc, coalesce(s.trading_value, 0) desc";
+  }
+}
+
+export async function getStocks(filtersInput: Partial<FilterState> = {}, sort: string | null = "score") {
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required for stock data API.");
+  }
+
+  const filters = normalizeFilters(filtersInput);
+  const { whereSql, values } = buildWhere(filters);
+  const orderBy = buildOrderBy(sort);
+  const client = await getPool().connect();
 
   try {
-    const symbols = STOCK_UNIVERSE.map((stock) => stock.symbol).join(",");
-    const response = await fetch(
-      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbols)}`,
-      {
-        headers: {
-          "User-Agent": "Mozilla/5.0",
-        },
-        next: { revalidate: 300 },
-      },
+    const stocksQuery = await client.query(
+      `
+        with latest as (
+          select max(trade_date) as latest_trade_date
+          from stock_daily_snapshot
+        ),
+        recent_dates as (
+          select trade_date
+          from stock_daily_snapshot, latest
+          where trade_date <= latest.latest_trade_date
+          group by trade_date
+          order by trade_date desc
+          limit 20
+        ),
+        start_date as (
+          select min(trade_date) as start_trade_date
+          from recent_dates
+        ),
+        start_prices as (
+          select s.ticker, s.close_price as start_close_price
+          from stock_daily_snapshot s
+          join start_date d on s.trade_date = d.start_trade_date
+        ),
+        latest_rows as (
+          select
+            s.*,
+            percent_rank() over (order by coalesce(s.trading_value, 0) desc) * 100 as volume_rank_pct
+          from stock_daily_snapshot s
+          join latest on s.trade_date = latest.latest_trade_date
+        ),
+        enriched as (
+          select
+            s.*,
+            m.name_kr,
+            m.market_segment_name,
+            m.security_type_name,
+            coalesce(c.sector_name, m.sector_name, $${values.length + 1}) as sector_name,
+            case
+              when sp.start_close_price is null or sp.start_close_price = 0 then null
+              else (s.close_price / sp.start_close_price - 1) * 100
+            end as momentum_20d
+          from latest_rows s
+          join latest on true
+          join stock_master m on m.ticker = s.ticker
+          left join stock_industry_classification c on c.ticker = s.ticker and c.is_current = 1
+          left join start_prices sp on sp.ticker = s.ticker
+          where ${whereSql}
+        ),
+        scored as (
+          select
+            *,
+            (
+              coalesce(change_rate, 0) * 100 * 2
+              + coalesce(momentum_20d, 0)
+              + least(coalesce(trading_value, 0) / 10000000000.0, 25)
+              + least(coalesce(market_cap, 0) / 1000000000000.0, 25)
+            ) as score
+          from enriched
+        )
+        select *
+        from scored s
+        order by ${orderBy}
+        limit 300
+      `,
+      [...values, UNCATEGORIZED],
     );
 
-    if (!response.ok) {
-      throw new Error(`Yahoo Finance HTTP ${response.status}`);
-    }
-
-    const payload = (await response.json()) as {
-      quoteResponse?: {
-        result?: YahooQuote[];
-      };
-    };
-
-    const quoteMap = new Map(
-      (payload.quoteResponse?.result ?? []).map((quote) => [quote.symbol, quote]),
+    const sectorQuery = await client.query(
+      `
+        with latest as (
+          select max(trade_date) as latest_trade_date
+          from stock_daily_snapshot
+        ),
+        base as (
+          select
+            coalesce(c.sector_name, m.sector_name, $1) as sector_name,
+            s.ticker,
+            m.name_kr,
+            s.change_rate,
+            s.trading_value,
+            s.market_cap,
+            row_number() over (
+              partition by coalesce(c.sector_name, m.sector_name, $1)
+              order by coalesce(s.change_rate, -999) desc
+            ) as leader_rank
+          from stock_daily_snapshot s
+          join latest on s.trade_date = latest.latest_trade_date
+          join stock_master m on m.ticker = s.ticker
+          left join stock_industry_classification c on c.ticker = s.ticker and c.is_current = 1
+          where m.security_type_name = $2
+            and not (coalesce(m.market_segment_name, '') = any($3))
+        )
+        select
+          sector_name,
+          count(*)::integer as stock_count,
+          avg(change_rate) * 100 as average_change_pct,
+          sum(trading_value) as trading_value,
+          sum(market_cap) as market_cap_value,
+          max(case when leader_rank = 1 then ticker end) as leader_ticker,
+          max(case when leader_rank = 1 then name_kr end) as leader_name,
+          max(case when leader_rank = 1 then change_rate end) * 100 as leader_change_pct
+        from base
+        group by sector_name
+        order by average_change_pct desc nulls last, stock_count desc
+        limit 80
+      `,
+      [UNCATEGORIZED, COMMON_STOCK, RISK_SEGMENTS],
     );
 
-    const merged = STOCK_UNIVERSE.map(({ symbol, ...stock }) => {
-      const quote = quoteMap.get(symbol);
-      const livePrice = quote?.regularMarketPrice ?? stock.price;
-      const liveChangePct = quote?.regularMarketChangePercent ?? stock.changePct;
-      const livePer = quote?.trailingPE ?? stock.per;
-      const livePbr = quote?.priceToBook ?? stock.pbr;
-      const liveDividendYield =
-        quote?.dividendYield !== undefined ? quote.dividendYield * 100 : stock.dividendYield;
+    const marketQuery = await client.query(
+      `
+        select trade_date, kospi_close, kospi_return_1d, kosdaq_close, kosdaq_return_1d,
+               usdkrw_close, kr_10y_yield, us_10y_yield, wti_close, sp500_return_1d
+        from market_daily_factors
+        order by trade_date desc
+        limit 1
+      `,
+    );
 
-      const hydrated: Stock = {
-        ...stock,
-        price: livePrice,
-        changePct: liveChangePct,
-        per: Number.isFinite(livePer) ? livePer : stock.per,
-        pbr: Number.isFinite(livePbr) ? livePbr : stock.pbr,
-        dividendYield: Number.isFinite(liveDividendYield) ? liveDividendYield : stock.dividendYield,
-        marketCap: formatMarketCap(quote?.marketCap, stock.market),
-      };
+    const coverageQuery = await client.query(
+      `
+        with latest as (
+          select max(trade_date) as latest_trade_date
+          from stock_daily_snapshot
+        )
+        select
+          latest.latest_trade_date,
+          (select count(*)::integer from stock_daily_snapshot s where s.trade_date = latest.latest_trade_date) as stock_rows,
+          (select count(*)::integer from stock_industry_classification where is_current = 1) as classified_rows,
+          (
+            select count(*)::integer
+            from stock_master m
+            left join stock_industry_classification c on c.ticker = m.ticker and c.is_current = 1
+            where c.ticker is null
+          ) as missing_classification_rows
+        from latest
+      `,
+    );
+
+    const stocks: Stock[] = stocksQuery.rows.map((row) => {
+      const changePct = (toNumber(row.change_rate) ?? 0) * 100;
+      const momentum20d = toNumber(row.momentum_20d);
+      const tradingValue = toNumber(row.trading_value);
+      const sectorName = String(row.sector_name);
+      const segmentName = row.market_segment_name ? String(row.market_segment_name) : null;
+      const securityTypeName = row.security_type_name ? String(row.security_type_name) : null;
+      const reasons = [
+        `Sector: ${sectorName}`,
+        tradingValue ? `Trading value: ${Math.round(tradingValue / 100000000)}eok KRW` : "Trading value unavailable",
+        momentum20d !== null ? `20 trading days: ${momentum20d >= 0 ? "+" : ""}${momentum20d.toFixed(1)}%` : "Momentum unavailable",
+      ];
+      const risks = [
+        segmentName ? `Market segment: ${segmentName}` : "No market segment",
+        securityTypeName ? `Security type: ${securityTypeName}` : "Security type unavailable",
+      ];
 
       return {
-        ...hydrated,
-        score: scoreStock(hydrated),
+        ticker: String(row.ticker),
+        name: String(row.name_kr),
+        market: String(row.market) as Stock["market"],
+        sector: sectorName,
+        price: toNumber(row.close_price) ?? 0,
+        changePct,
+        changePrice: toNumber(row.change_price),
+        volume: toNumber(row.volume),
+        tradingValue,
+        marketCapValue: toNumber(row.market_cap),
+        sharesOutstanding: toNumber(row.shares_outstanding),
+        marketSegmentName: segmentName,
+        securityTypeName,
+        momentum20d,
+        volumeRankPct: toNumber(row.volume_rank_pct),
+        score: Math.round(toNumber(row.score) ?? 0),
+        reasons,
+        risks,
       };
     });
 
+    const sectors = sectorQuery.rows.map((row) => ({
+      sector: String(row.sector_name),
+      stockCount: Number(row.stock_count),
+      averageChangePct: toNumber(row.average_change_pct) ?? 0,
+      tradingValue: toNumber(row.trading_value) ?? 0,
+      marketCapValue: toNumber(row.market_cap_value) ?? 0,
+      leaderTicker: row.leader_ticker ? String(row.leader_ticker) : null,
+      leaderName: row.leader_name ? String(row.leader_name) : null,
+      leaderChangePct: toNumber(row.leader_change_pct),
+    }));
+
+    const marketRow = marketQuery.rows[0];
+    const coverageRow = coverageQuery.rows[0];
+
     return {
-      stocks: filterStocks(merged, filters),
-      source: "live" as const,
+      stocks,
+      sectors,
+      marketFactors: marketRow
+        ? {
+            tradeDate: dateToText(marketRow.trade_date),
+            kospiClose: toNumber(marketRow.kospi_close),
+            kospiReturn1d: (toNumber(marketRow.kospi_return_1d) ?? 0) * 100,
+            kosdaqClose: toNumber(marketRow.kosdaq_close),
+            kosdaqReturn1d: (toNumber(marketRow.kosdaq_return_1d) ?? 0) * 100,
+            usdkrwClose: toNumber(marketRow.usdkrw_close),
+            kr10yYield: (toNumber(marketRow.kr_10y_yield) ?? 0) * 100,
+            us10yYield: (toNumber(marketRow.us_10y_yield) ?? 0) * 100,
+            wtiClose: toNumber(marketRow.wti_close),
+            sp500Return1d: (toNumber(marketRow.sp500_return_1d) ?? 0) * 100,
+          }
+        : null,
+      coverage: {
+        latestTradeDate: dateToText(coverageRow?.latest_trade_date),
+        stockRows: Number(coverageRow?.stock_rows ?? 0),
+        classifiedRows: Number(coverageRow?.classified_rows ?? 0),
+        missingClassificationRows: Number(coverageRow?.missing_classification_rows ?? 0),
+      },
+      source: "database" as const,
       updatedAt: new Date().toISOString(),
-    };
-  } catch {
-    return {
-      stocks: filterStocks(baseStocks, filters),
-      source: "fallback" as const,
-      updatedAt: new Date().toISOString(),
-    };
+    } satisfies StocksApiResponse;
+  } finally {
+    client.release();
   }
 }

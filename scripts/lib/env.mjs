@@ -1,5 +1,5 @@
 export function getEnv(name, fallback = null) {
-  const value = process.env[name];
+  const value = process.env[name] ?? process.env[`﻿${name}`];
   if (value === undefined || value === "") {
     return fallback;
   }

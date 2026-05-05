@@ -14,6 +14,16 @@
   return response.json();
 }
 
+export async function sleep(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return;
+  }
+
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 export function toDateKey(date) {
   return date.toISOString().slice(0, 10);
 }

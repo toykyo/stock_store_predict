@@ -69,9 +69,20 @@ export async function collectEcosFactors(tradeDate) {
     apiKey,
   );
 
+  const kr3y = await fetchEcosSeries(
+    {
+      statCode: getEnv("ECOS_KR3Y_STAT_CODE"),
+      itemCode1: getEnv("ECOS_KR3Y_ITEM_CODE1"),
+      itemCode2: getEnv("ECOS_KR3Y_ITEM_CODE2", "?"),
+      itemCode3: getEnv("ECOS_KR3Y_ITEM_CODE3", "?"),
+    },
+    tradeDate,
+    apiKey,
+  );
+
   return {
     collector: "collectEcosFactors",
-    status: usdkrw || kr10y ? "completed" : "empty",
+    status: usdkrw || kr10y || kr3y ? "completed" : "empty",
     detail: "ECOS factors collected.",
     source: getEnv("ECOS_BASE_URL", "https://ecos.bok.or.kr/api"),
     row: {
@@ -79,6 +90,8 @@ export async function collectEcosFactors(tradeDate) {
       usdkrw_close: usdkrw?.current,
       usdkrw_return_1d: usdkrw ? computeReturn(usdkrw.current, usdkrw.previous) : undefined,
       kr_10y_yield: kr10y ? asDecimalPercent(kr10y.current) : undefined,
+      kr_3y_yield: kr3y ? asDecimalPercent(kr3y.current) : undefined,
+      kr_term_spread_10y_3y: kr10y && kr3y ? asDecimalPercent(kr10y.current - kr3y.current) : undefined,
       collected_at: new Date().toISOString(),
     },
   };

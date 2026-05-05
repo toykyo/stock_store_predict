@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getStocks } from "../../stocks/data";
-import {
-  DEFAULT_FILTERS,
-  type FilterState,
-  type Market,
-  type Sector,
-} from "../../stocks/shared";
+import { DEFAULT_FILTERS, type FilterState, type Market } from "../../stocks/shared";
 
 function parseNumber(value: string | null, fallback: number) {
   if (!value) {
@@ -17,25 +12,32 @@ function parseNumber(value: string | null, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function parseBoolean(value: string | null, fallback: boolean) {
+  if (value === null) {
+    return fallback;
+  }
+
+  return value === "true";
+}
+
 function parseFilters(request: NextRequest): FilterState {
   const { searchParams } = request.nextUrl;
-  const market = (searchParams.get("market") as Market | null) ?? DEFAULT_FILTERS.market;
-  const sector = (searchParams.get("sector") as Sector | null) ?? DEFAULT_FILTERS.sector;
 
   return {
-    market,
-    sector,
-    perMax: parseNumber(searchParams.get("perMax"), DEFAULT_FILTERS.perMax),
-    pbrMax: parseNumber(searchParams.get("pbrMax"), DEFAULT_FILTERS.pbrMax),
-    roeMin: parseNumber(searchParams.get("roeMin"), DEFAULT_FILTERS.roeMin),
-    volumeRankMax: parseNumber(searchParams.get("volumeRankMax"), DEFAULT_FILTERS.volumeRankMax),
-    momentumMin: parseNumber(searchParams.get("momentumMin"), DEFAULT_FILTERS.momentumMin),
+    market: (searchParams.get("market") as Market | null) ?? DEFAULT_FILTERS.market,
+    sector: searchParams.get("sector") ?? DEFAULT_FILTERS.sector,
+    query: searchParams.get("query") ?? DEFAULT_FILTERS.query,
+    minChangePct: parseNumber(searchParams.get("minChangePct"), DEFAULT_FILTERS.minChangePct),
+    minTradingValue: parseNumber(searchParams.get("minTradingValue"), DEFAULT_FILTERS.minTradingValue),
+    onlyCommonStock: parseBoolean(searchParams.get("onlyCommonStock"), DEFAULT_FILTERS.onlyCommonStock),
+    excludeRiskSegments: parseBoolean(searchParams.get("excludeRiskSegments"), DEFAULT_FILTERS.excludeRiskSegments),
   };
 }
 
 export async function GET(request: NextRequest) {
   const filters = parseFilters(request);
-  const payload = await getStocks(filters);
+  const sort = request.nextUrl.searchParams.get("sort") ?? "score";
+  const payload = await getStocks(filters, sort);
 
   return NextResponse.json(payload, {
     headers: {

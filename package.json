@@ -10,7 +10,13 @@
     "db:schema": "node --env-file=.env scripts/show-schema.mjs",
     "db:apply": "node --env-file=.env scripts/apply-schema.mjs",
     "batch:run": "node --env-file=.env scripts/run-krx-batch.mjs",
-    "batch:backfill": "node --env-file=.env scripts/run-krx-batch.mjs --mode backfill"
+    "batch:backfill": "node --env-file=.env scripts/run-krx-batch.mjs --mode backfill",
+    "derived:refresh": "node --env-file=.env scripts/refresh-derived-data.mjs",
+    "model:train": "node --env-file=.env scripts/train-baseline-models.mjs",
+    "model:predict": "node --env-file=.env scripts/run-predictions.mjs",
+    "model:evaluate": "node --env-file=.env scripts/evaluate-models.mjs",
+    "industry:import": "node --env-file=.env scripts/import-industry-classification-csv.mjs",
+    "industry:check": "node --env-file=.env scripts/check-industry-classification.mjs"
   },
   "dependencies": {
     "next": "15.5.12",

@@ -47,19 +47,33 @@ export async function collectFredFactors(tradeDate) {
   }
 
   const us10 = await fetchFredSeries(getEnv("FRED_US10Y_SERIES_ID", "DGS10"), tradeDate);
+  const us2 = await fetchFredSeries(getEnv("FRED_US2Y_SERIES_ID", "DGS2"), tradeDate);
   const wti = await fetchFredSeries(getEnv("FRED_WTI_SERIES_ID", "DCOILWTICO"), tradeDate);
+  const brent = await fetchFredSeries(getEnv("FRED_BRENT_SERIES_ID", "DCOILBRENTEU"), tradeDate);
   const sp500 = await fetchFredSeries(getEnv("FRED_SP500_SERIES_ID", "SP500"), tradeDate);
+  const nasdaq = await fetchFredSeries(getEnv("FRED_NASDAQ_SERIES_ID", "NASDAQCOM"), tradeDate);
+  const sox = await fetchFredSeries(getEnv("FRED_SOX_SERIES_ID", "NASDAQSOX"), tradeDate);
+  const vix = await fetchFredSeries(getEnv("FRED_VIX_SERIES_ID", "VIXCLS"), tradeDate);
+  const dxy = await fetchFredSeries(getEnv("FRED_DXY_SERIES_ID", "DTWEXBGS"), tradeDate);
 
   return {
     collector: "collectFredFactors",
-    status: us10 || wti || sp500 ? "completed" : "empty",
+    status: us10 || us2 || wti || brent || sp500 || nasdaq || sox || vix || dxy ? "completed" : "empty",
     detail: "FRED factors collected.",
     source: getEnv("FRED_BASE_URL", "https://api.stlouisfed.org/fred"),
     row: {
       trade_date: tradeDate,
+      us_2y_yield: us2 ? asDecimalPercent(us2.current) : undefined,
       us_10y_yield: us10 ? asDecimalPercent(us10.current) : undefined,
+      us_term_spread_10y_2y: us10 && us2 ? asDecimalPercent(us10.current - us2.current) : undefined,
       wti_close: wti?.current,
+      brent_close: brent?.current,
+      dxy_close: dxy?.current,
       sp500_return_1d: sp500 ? computeReturn(sp500.current, sp500.previous) : undefined,
+      nasdaq_return_1d: nasdaq ? computeReturn(nasdaq.current, nasdaq.previous) : undefined,
+      sox_return_1d: sox ? computeReturn(sox.current, sox.previous) : undefined,
+      vix_close: vix?.current,
+      vix_return_1d: vix ? computeReturn(vix.current, vix.previous) : undefined,
       collected_at: new Date().toISOString(),
     },
   };
