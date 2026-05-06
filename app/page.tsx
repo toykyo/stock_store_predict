@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { getMonitoringOverview } from "./monitoring/data";
+import { PredictionPanels } from "./monitoring/prediction-panels";
 import { formatDate, formatDateTime, formatPercent, formatRankChange, formatRatio } from "./monitoring/shared";
 
 function MetricCard({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "neutral" | "up" | "down" }) {
@@ -60,86 +61,12 @@ export default async function HomePage({
         <MetricCard label="latest market date" value={formatDate(overview.dataStatus.latestMarketTradeDate)} />
       </section>
 
-      <section className="dashboard-grid">
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Top sectors</p>
-              <h2>Sector predictions</h2>
-              <small>Click a sector to filter eligible stock predictions. Rank change means movement versus the previous prediction date.</small>
-            </div>
-          </div>
-          <div className="table-block">
-            <div className="table-row header">
-              <span>Rank</span>
-              <span>Sector</span>
-              <span>Probability</span>
-              <span>Prev rank change</span>
-            </div>
-            {overview.topSectors.map((row) => (
-              <div
-                className={`table-row ${overview.selectedSectorCode === row.sectorCode ? "selected" : ""}`}
-                key={`${row.sectorCode}-${row.modelVersion}`}
-              >
-                <span>{row.rank}</span>
-                <span>
-                  <strong>{row.sectorName}</strong>
-                  <small>{row.modelVersion}</small>
-                  <small className="row-actions">
-                    <Link className="row-action-link" href={`/?sector=${encodeURIComponent(row.sectorCode)}`}>
-                      Filter stocks
-                    </Link>
-                    <Link className="row-action-link" href={`/sector/${encodeURIComponent(row.sectorCode)}`}>
-                      Detail
-                    </Link>
-                  </small>
-                </span>
-                <span>{formatRatio(row.probability)}</span>
-                <span>{formatRankChange(row.rank, row.previousRank)}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Stocks inside selected sectors</p>
-              <h2>Stock predictions</h2>
-              <small>
-                {overview.selectedSectorName
-                  ? `Selected sector: ${overview.selectedSectorName}. Only stocks that pass the current stock-model filters are shown.`
-                  : "No sector selected"}
-              </small>
-            </div>
-          </div>
-          <div className="table-block">
-            <div className="table-row header">
-              <span>Rank</span>
-              <span>Stock</span>
-              <span>Sector</span>
-              <span>Probability</span>
-            </div>
-            {overview.topStocks.length === 0 ? (
-              <div className="table-empty">
-                No eligible stock predictions for the selected sector. This usually means no stocks in this sector passed the current stock-model filters.
-              </div>
-            ) : (
-              overview.topStocks.map((row) => (
-                <div className="table-row" key={`${row.ticker}-${row.modelVersion}`}>
-                  <span>{row.rank}</span>
-                  <span>
-                    <strong>{row.name}</strong>
-                    <small>{row.ticker}</small>
-                  </span>
-                  <span>{row.sectorName ?? "-"}</span>
-                  <span>{formatRatio(row.probability)}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-      </section>
+      <PredictionPanels
+        currentSectors={overview.currentSectors}
+        latestCurrentSectorTradeDate={overview.latestCurrentSectorTradeDate}
+        topSectors={overview.topSectors}
+        selectedSectorCode={overview.selectedSectorCode}
+      />
 
       <section className="dashboard-grid secondary">
         <section className="panel">

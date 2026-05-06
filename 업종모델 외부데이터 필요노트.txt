@@ -1,0 +1,49 @@
+업종모델 추가 외부데이터 필요 노트
+최종 업데이트: 2026-05-06
+
+목적
+- 현재 DB만으로 바로 만들 수 없는 업종모델 후보 변수를 분리 기록한다.
+- 아래 항목들은 별도 소스 확보 후 수집/정규화가 필요하다.
+
+1. 반도체 특화
+- 메모리 가격 변화율
+- 반도체 수출 증가율
+- AI 서버/미국 반도체 대형주 proxy 세분화
+- 업종별 외국인 순매수
+
+2. 소재/원자재 특화
+- 구리 현물/선물 일별 가격
+- 철광석 일별 가격
+- 정제마진 proxy
+- 납사 가격
+
+3. 업종 수급
+- 업종별 외국인 순매수
+- 업종별 기관 순매수
+- 업종별 개인 순매수
+- 프로그램 순매수
+
+4. 뉴스/공시 확장
+- 업종별 뉴스 건수
+- 업종별 뉴스 sentiment
+- 업종별 공시 sentiment
+- 업종별 키워드 이벤트 플래그
+
+5. 거시/산업 활동
+- 반도체 생산/출하/재고
+- 소비심리/유통 관련 월간 지표
+- 건설 수주/주택지표
+- 바이오/제약 규제 이벤트
+
+현재 DB만으로 이미 구현 가능한 업종 내부 종목 요약 변수
+- leader_stock_return_5d
+- top3_market_cap_avg_return_5d
+- top5_market_cap_avg_return_5d
+- sector_up_ratio_5d
+- sector_cross_sectional_volatility_5d
+- sector_return_concentration_top3
+- sector_trading_value_concentration_top5
+
+비고
+- 이 파일은 외부 소스 의존 항목만 관리한다.
+- 내부 DB만으로 가능한 변수는 sector_feature_daily 생성 로직에서 바로 구현한다.

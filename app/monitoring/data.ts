@@ -1,6 +1,11 @@
 import { Pool } from "pg";
 
-import type { MonitoringOverview, SectorDetail } from "./shared";
+import type {
+  CurrentSectorStockRow,
+  MonitoringOverview,
+  PredictedSectorStockRow,
+  SectorDetail,
+} from "./shared";
 
 let pool: Pool | undefined;
 
@@ -150,6 +155,20 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
             from sector_prediction_daily
             where model_version = $1
           ),
+          latest_actual as (
+            select max(trade_date) as trade_date
+            from sector_daily_snapshot
+          ),
+          current_actual_rank as (
+            select
+              s.sector_code,
+              s.trade_date,
+              row_number() over (
+                order by s.sector_return_1d desc nulls last, s.sector_name, s.sector_code
+              ) as current_rank
+            from sector_daily_snapshot s
+            join latest_actual la on la.trade_date = s.trade_date
+          ),
           previous as (
             select
               sector_code,
@@ -157,6 +176,23 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
               row_number() over (partition by sector_code, model_version order by prediction_date desc) as rn
             from sector_prediction_daily
             where model_version = $1
+          ),
+          latest_actual_stocks as (
+            select
+              s.market,
+              c.sector_name,
+              string_agg(distinct coalesce(m.name_kr, s.name_kr), ' ' order by coalesce(m.name_kr, s.name_kr)) as stock_names,
+              string_agg(distinct s.ticker, ' ' order by s.ticker) as tickers
+            from stock_daily_snapshot s
+            join (
+              select max(trade_date) as trade_date
+              from stock_daily_snapshot
+            ) ls on ls.trade_date = s.trade_date
+            join stock_industry_classification c
+              on c.ticker = s.ticker
+             and c.is_current = 1
+            left join stock_master m on m.ticker = s.ticker
+            group by s.market, c.sector_name
           )
           select
             p.prediction_date,
@@ -165,19 +201,64 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
             p.probability,
             p.rank,
             p.model_version,
-            prev.rank as previous_rank
+            prev.rank as previous_rank,
+            car.current_rank,
+            car.trade_date as current_rank_trade_date,
+            concat_ws(' ', p.sector_code, p.sector_name, las.stock_names, las.tickers) as search_keywords
           from sector_prediction_daily p
           join latest l on l.prediction_date = p.prediction_date
+          left join current_actual_rank car on car.sector_code = p.sector_code
+          left join latest_actual_stocks las
+            on las.sector_name = p.sector_name
+           and las.market = case when p.sector_code like 'P\\_%' escape '\\' then 'KOSPI' else 'KOSDAQ' end
           left join previous prev
             on prev.sector_code = p.sector_code
            and prev.rn = 2
           where p.model_version = $1
           order by p.rank
-          limit 12
         `,
         [activeSectorModelVersion],
       )
       : { rows: [] };
+
+    const currentSectorResult = await client.query(
+      `
+        with latest_actual as (
+          select max(trade_date) as trade_date
+          from sector_daily_snapshot
+        ),
+        latest_actual_stocks as (
+          select
+            s.market,
+            c.sector_name,
+            string_agg(distinct coalesce(m.name_kr, s.name_kr), ' ' order by coalesce(m.name_kr, s.name_kr)) as stock_names,
+            string_agg(distinct s.ticker, ' ' order by s.ticker) as tickers
+          from stock_daily_snapshot s
+          join latest_actual la on la.trade_date = s.trade_date
+          join stock_industry_classification c
+            on c.ticker = s.ticker
+           and c.is_current = 1
+          left join stock_master m on m.ticker = s.ticker
+          group by s.market, c.sector_name
+        )
+        select
+          s.trade_date,
+          s.sector_code,
+          s.sector_name,
+          s.market,
+          s.sector_return_1d,
+          concat_ws(' ', s.sector_code, s.sector_name, las.stock_names, las.tickers) as search_keywords,
+          row_number() over (
+            order by s.sector_return_1d desc nulls last, s.sector_name, s.sector_code
+          ) as current_rank
+        from sector_daily_snapshot s
+        join latest_actual la on la.trade_date = s.trade_date
+        left join latest_actual_stocks las
+          on las.market = s.market
+         and las.sector_name = s.sector_name
+        order by current_rank
+      `,
+    );
 
     const topSectors = sectorResult.rows.map((row) => ({
       predictionDate: toDateText(row.prediction_date),
@@ -185,8 +266,21 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
       sectorName: String(row.sector_name),
       probability: Number(row.probability),
       rank: Number(row.rank),
+      currentRank: row.current_rank === null ? null : Number(row.current_rank),
+      currentRankTradeDate: toDateText(row.current_rank_trade_date),
       previousRank: row.previous_rank === null ? null : Number(row.previous_rank),
       modelVersion: String(row.model_version),
+      searchKeywords: String(row.search_keywords ?? ""),
+    }));
+
+    const currentSectors = currentSectorResult.rows.map((row) => ({
+      tradeDate: toDateText(row.trade_date),
+      sectorCode: String(row.sector_code),
+      sectorName: String(row.sector_name),
+      market: row.market ? String(row.market) : null,
+      currentRank: Number(row.current_rank),
+      sectorReturn1d: toNumber(row.sector_return_1d),
+      searchKeywords: String(row.search_keywords ?? ""),
     }));
 
     const effectiveSelectedSectorCode = requestedSectorCode && topSectors.some((row) => row.sectorCode === requestedSectorCode)
@@ -283,8 +377,10 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
       },
       activeModels,
       latestPredictionDate: toDateText(latestPredictionResult.rows[0]?.latest_prediction_date),
+      latestCurrentSectorTradeDate: currentSectors[0]?.tradeDate ?? null,
       selectedSectorCode: effectiveSelectedSectorCode,
       selectedSectorName: effectiveSelectedSectorName,
+      currentSectors,
       topSectors,
       topStocks: stockResult.rows.map((row) => ({
         predictionDate: toDateText(row.prediction_date),
@@ -433,6 +529,130 @@ export async function getSectorDetail(sectorCode: string): Promise<SectorDetail 
       history,
       predictionWindowDates,
     };
+  } finally {
+    client.release();
+  }
+}
+
+export async function getCurrentSectorStocks(sectorCode: string): Promise<CurrentSectorStockRow[]> {
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required for current sector stocks.");
+  }
+
+  const client = await getPool().connect();
+
+  try {
+    const result = await client.query(
+      `
+        with target_sector as (
+          select sector_name, market
+          from sector_daily_snapshot
+          where sector_code = $1
+          order by trade_date desc
+          limit 1
+        ),
+        latest_stock as (
+          select max(trade_date) as trade_date
+          from stock_daily_snapshot
+        )
+        select
+          s.trade_date,
+          s.ticker,
+          coalesce(m.name_kr, s.name_kr) as name_kr,
+          s.market,
+          s.close_price,
+          s.change_rate,
+          s.trading_value,
+          s.market_cap
+        from stock_daily_snapshot s
+        join latest_stock ls on ls.trade_date = s.trade_date
+        join target_sector ts on ts.market = s.market
+        join stock_industry_classification c
+          on c.ticker = s.ticker
+         and c.is_current = 1
+         and c.sector_name = ts.sector_name
+        left join stock_master m on m.ticker = s.ticker
+        order by s.market_cap desc nulls last, s.trading_value desc nulls last, s.ticker
+        limit 120
+      `,
+      [sectorCode],
+    );
+
+    return result.rows.map((row) => ({
+      tradeDate: toDateText(row.trade_date),
+      ticker: String(row.ticker),
+      name: String(row.name_kr),
+      market: row.market ? String(row.market) : null,
+      closePrice: toNumber(row.close_price),
+      changeRate: toNumber(row.change_rate),
+      tradingValue: toNumber(row.trading_value),
+      marketCap: toNumber(row.market_cap),
+    }));
+  } finally {
+    client.release();
+  }
+}
+
+export async function getPredictedSectorStocks(sectorCode: string): Promise<PredictedSectorStockRow[]> {
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required for predicted sector stocks.");
+  }
+
+  const client = await getPool().connect();
+
+  try {
+    const activeModelResult = await client.query(
+      `
+        select model_version
+        from model_registry
+        where model_type = 'stock'
+          and status = 'active'
+        order by created_at desc
+        limit 1
+      `,
+    );
+
+    const activeStockModelVersion = activeModelResult.rows[0]?.model_version
+      ? String(activeModelResult.rows[0].model_version)
+      : null;
+
+    if (!activeStockModelVersion) {
+      return [];
+    }
+
+    const result = await client.query(
+      `
+        with latest_prediction as (
+          select max(prediction_date) as prediction_date
+          from stock_prediction_daily
+          where model_version = $1
+        )
+        select
+          p.prediction_date,
+          p.ticker,
+          coalesce(m.name_kr, p.ticker) as name_kr,
+          p.sector_name,
+          p.rank,
+          p.probability
+        from stock_prediction_daily p
+        join latest_prediction lp on lp.prediction_date = p.prediction_date
+        left join stock_master m on m.ticker = p.ticker
+        where p.model_version = $1
+          and p.sector_code = $2
+        order by p.rank, p.ticker
+        limit 120
+      `,
+      [activeStockModelVersion, sectorCode],
+    );
+
+    return result.rows.map((row) => ({
+      predictionDate: toDateText(row.prediction_date),
+      ticker: String(row.ticker),
+      name: String(row.name_kr),
+      sectorName: row.sector_name ? String(row.sector_name) : null,
+      rank: Number(row.rank),
+      probability: Number(row.probability),
+    }));
   } finally {
     client.release();
   }

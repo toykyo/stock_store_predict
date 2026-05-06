@@ -44,6 +44,13 @@ const FEATURE_SETS = {
     "us_2y_yield_x_biotech",
     "kr_3y_yield_x_construction",
     "kosdaq_excess_return_vs_kospi_x_content",
+    "leader_stock_return_5d",
+    "top3_market_cap_avg_return_5d",
+    "top5_market_cap_avg_return_5d",
+    "sector_up_ratio_5d",
+    "sector_cross_sectional_volatility_5d",
+    "sector_return_concentration_top3",
+    "sector_trading_value_concentration_top5",
   ],
   stock: [
     "stock_return_1d",

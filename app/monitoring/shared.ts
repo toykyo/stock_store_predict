@@ -26,8 +26,21 @@ export type TopSectorPrediction = {
   sectorName: string;
   probability: number;
   rank: number;
+  currentRank: number | null;
+  currentRankTradeDate: string | null;
   previousRank: number | null;
   modelVersion: string;
+  searchKeywords: string;
+};
+
+export type CurrentSectorStatusRow = {
+  tradeDate: string | null;
+  sectorCode: string;
+  sectorName: string;
+  market: string | null;
+  currentRank: number;
+  sectorReturn1d: number | null;
+  searchKeywords: string;
 };
 
 export type TopStockPrediction = {
@@ -39,6 +52,26 @@ export type TopStockPrediction = {
   rank: number;
   previousRank: number | null;
   modelVersion: string;
+};
+
+export type CurrentSectorStockRow = {
+  tradeDate: string | null;
+  ticker: string;
+  name: string;
+  market: string | null;
+  closePrice: number | null;
+  changeRate: number | null;
+  tradingValue: number | null;
+  marketCap: number | null;
+};
+
+export type PredictedSectorStockRow = {
+  predictionDate: string | null;
+  ticker: string;
+  name: string;
+  sectorName: string | null;
+  rank: number;
+  probability: number;
 };
 
 export type PerformanceRow = {
@@ -63,8 +96,10 @@ export type MonitoringOverview = {
   };
   activeModels: ActiveModel[];
   latestPredictionDate: string | null;
+  latestCurrentSectorTradeDate: string | null;
   selectedSectorCode: string | null;
   selectedSectorName: string | null;
+  currentSectors: CurrentSectorStatusRow[];
   topSectors: TopSectorPrediction[];
   topStocks: TopStockPrediction[];
   performance: PerformanceRow[];

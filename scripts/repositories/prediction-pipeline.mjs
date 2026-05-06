@@ -295,7 +295,7 @@ export async function rebuildFeatureAndTargetTables(client) {
         case
           when (
             s.sector_name like '%금융%' or
-            s.sector_name like '%보험%' or
+            s.sector_name like '%보험작%' or
             s.sector_name like '%은행%' or
             s.sector_name like '%증권%' or
             s.sector_name like '%연금%'

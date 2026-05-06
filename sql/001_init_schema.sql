@@ -256,6 +256,13 @@ create table if not exists sector_feature_daily (
     us_2y_yield_x_biotech numeric(12, 6),
     kr_3y_yield_x_construction numeric(12, 6),
     kosdaq_excess_return_vs_kospi_x_content numeric(12, 6),
+    leader_stock_return_5d numeric(12, 6),
+    top3_market_cap_avg_return_5d numeric(12, 6),
+    top5_market_cap_avg_return_5d numeric(12, 6),
+    sector_up_ratio_5d numeric(12, 6),
+    sector_cross_sectional_volatility_5d numeric(12, 6),
+    sector_return_concentration_top3 numeric(12, 6),
+    sector_trading_value_concentration_top5 numeric(12, 6),
     is_month_end smallint not null default 0,
     is_quarter_end smallint not null default 0,
     is_holiday_before smallint not null default 0,
@@ -286,6 +293,13 @@ alter table sector_feature_daily add column if not exists nasdaq_return_1d_x_bio
 alter table sector_feature_daily add column if not exists us_2y_yield_x_biotech numeric(12, 6);
 alter table sector_feature_daily add column if not exists kr_3y_yield_x_construction numeric(12, 6);
 alter table sector_feature_daily add column if not exists kosdaq_excess_return_vs_kospi_x_content numeric(12, 6);
+alter table sector_feature_daily add column if not exists leader_stock_return_5d numeric(12, 6);
+alter table sector_feature_daily add column if not exists top3_market_cap_avg_return_5d numeric(12, 6);
+alter table sector_feature_daily add column if not exists top5_market_cap_avg_return_5d numeric(12, 6);
+alter table sector_feature_daily add column if not exists sector_up_ratio_5d numeric(12, 6);
+alter table sector_feature_daily add column if not exists sector_cross_sectional_volatility_5d numeric(12, 6);
+alter table sector_feature_daily add column if not exists sector_return_concentration_top3 numeric(12, 6);
+alter table sector_feature_daily add column if not exists sector_trading_value_concentration_top5 numeric(12, 6);
 
 create table if not exists sector_target_daily (
     trade_date date not null,
