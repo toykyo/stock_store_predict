@@ -83,6 +83,27 @@ function isWeekend(dateText) {
   return day === 0 || day === 6;
 }
 
+const CRITICAL_EMPTY_STEPS = new Set([
+  "sync_stock_master",
+  "load_market_daily_factors",
+  "load_stock_daily_snapshot",
+]);
+
+function targetRecoveredFromEmpty(target) {
+  return target.steps.some((step) =>
+    (step.step_name === "build_feature_target_daily" || step.step_name === "run_prediction_models") &&
+    step.status === "completed"
+  );
+}
+
+function targetDeferredDerivedSteps(target) {
+  return target.steps.some((step) =>
+    (step.step_name === "build_feature_target_daily" || step.step_name === "run_prediction_models") &&
+    step.status === "skipped" &&
+    step.notes === "Deferred until the final backfill date to avoid rebuilding derived tables repeatedly."
+  );
+}
+
 function enumerateDates(from, to) {
   const dates = [];
   const cursor = new Date(`${from}T00:00:00+09:00`);
@@ -186,6 +207,50 @@ async function maybePersistDartDisclosure(result) {
   });
 
   return true;
+}
+
+function targetHasCriticalEmptyStep(target) {
+  return target.steps.some((step) => CRITICAL_EMPTY_STEPS.has(step.step_name) && step.status === "empty");
+}
+
+function determineTargetStatus(target) {
+  if (target.skipped) {
+    return "skipped";
+  }
+
+  if (target.steps.some((step) => step.status === "failed")) {
+    return "failed";
+  }
+
+  if (target.steps.some((step) => step.status === "blocked")) {
+    return "blocked";
+  }
+
+  if (targetHasCriticalEmptyStep(target)) {
+    if (targetDeferredDerivedSteps(target)) {
+      return "warning";
+    }
+
+    return targetRecoveredFromEmpty(target) ? "warning" : "failed";
+  }
+
+  if (target.steps.some((step) => step.status === "warning")) {
+    return "warning";
+  }
+
+  return "completed";
+}
+
+function summarizeTargetStatuses(targets) {
+  const counts = new Map();
+  for (const target of targets) {
+    const status = determineTargetStatus(target);
+    counts.set(status, (counts.get(status) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([status, count]) => `${status}=${count}`)
+    .join(", ");
 }
 
 async function buildQualityCheckResult() {
@@ -383,10 +448,12 @@ async function executeStep(stepName, tradeDate) {
       const ecos = settledCollectorResult(results[1], "collectEcosFactors");
       const fred = settledCollectorResult(results[2], "collectFredFactors");
       const mergedRow = mergeRows(krx.row, ecos.row, fred.row);
-      const persisted = await maybePersistMarketFactors(mergedRow);
+      const persisted = krx.status === "completed" ? await maybePersistMarketFactors(mergedRow) : false;
       const statuses = [krx.status, ecos.status, fred.status];
       const status = statuses.includes("completed")
-        ? "completed"
+        ? krx.status === "completed"
+          ? "completed"
+          : "empty"
         : statuses.includes("failed")
           ? "failed"
           : statuses.includes("blocked")
@@ -398,7 +465,11 @@ async function executeStep(stepName, tradeDate) {
           krx.detail,
           ecos.detail,
           fred.detail,
-          persisted ? "market_daily_factors upserted." : "DB upsert skipped.",
+          persisted
+            ? "market_daily_factors upserted."
+            : krx.status === "completed"
+              ? "DB upsert skipped."
+              : "DB upsert skipped because KRX market data was empty.",
         ].join(" | "),
       };
     }
@@ -465,13 +536,14 @@ async function persistRunToDb(payload) {
       const runId = `${payload.run_id}-${target.trade_date}`;
       const startedAt = payload.started_at;
       const finishedAt = new Date().toISOString();
+      const status = determineTargetStatus(target);
       await insertBatchRun(client, {
         run_id: runId,
         mode: payload.mode,
         trade_date: target.trade_date,
         started_at: startedAt,
         finished_at: finishedAt,
-        status: target.skipped ? "skipped" : "planned",
+        status,
         step_count: target.steps.length,
         notes: target.reason,
       });
@@ -508,6 +580,7 @@ async function run() {
       steps: BATCH_STEPS.map((step, index) => createStepLog(step, index + 1, tradeDate)),
     })),
   };
+  const finalExecutableTradeDate = [...payload.targets].reverse().find((target) => !target.skipped)?.trade_date ?? null;
 
   for (const target of payload.targets) {
     if (target.skipped) {
@@ -518,7 +591,7 @@ async function run() {
       if (
         args.mode === "backfill" &&
         derivedSteps.has(step.step_name) &&
-        target.trade_date !== payload.targets.at(-1)?.trade_date
+        target.trade_date !== finalExecutableTradeDate
       ) {
         step.status = "skipped";
         step.notes = "Deferred until the final backfill date to avoid rebuilding derived tables repeatedly.";
@@ -544,12 +617,18 @@ async function run() {
 
   const outputPath = await persistPlan(runId, payload);
   const dbPersisted = await persistRunToDb(payload);
+  const statusSummary = summarizeTargetStatuses(payload.targets);
+  const hasBlockingIssue = payload.targets.some((target) => {
+    const status = determineTargetStatus(target);
+    return status === "failed" || status === "blocked";
+  });
 
   console.log(`Batch plan created: ${runId}`);
   console.log(`Mode: ${args.mode}`);
   console.log(`Targets: ${targets.length}`);
   console.log(`Plan file: ${outputPath}`);
   console.log(`DB logging: ${dbPersisted ? "enabled" : "skipped (DATABASE_URL missing)"}`);
+  console.log(`Target status summary: ${statusSummary}`);
   console.log("");
 
   for (const target of payload.targets) {
@@ -563,6 +642,10 @@ async function run() {
     for (const step of target.steps) {
       console.log(`  ${String(step.step_order).padStart(2, "0")}. ${step.step_name} (${step.status})`);
     }
+  }
+
+  if (hasBlockingIssue) {
+    process.exitCode = 1;
   }
 }
 

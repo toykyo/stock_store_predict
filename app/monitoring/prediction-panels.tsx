@@ -252,6 +252,7 @@ export function PredictionPanels({
                 <span>
                   <strong>{row.sectorName}</strong>
                   <small>{row.sectorCode}</small>
+                  <small>{row.currentStockCount} stocks available</small>
                 </span>
                 <span>{row.market ?? "-"}</span>
                 <span>{formatPercent(row.sectorReturn1d)}</span>
@@ -297,6 +298,7 @@ export function PredictionPanels({
                 <span>
                   <strong>{row.sectorName}</strong>
                   <small>{row.modelVersion}</small>
+                  <small>{row.predictedStockCount} stocks available</small>
                   <small className="row-actions">
                     <Link
                       className="row-action-button detail"

@@ -130,7 +130,7 @@ export function trainLogisticRegression(rows, featureNames, options = {}) {
     .map((row, index) => ({
       probability: validationScores[index],
       label: validationLabels[index],
-      actualExcess: Number(row.actual_excess_return_5d ?? 0),
+      actualReturn: Number(row.actual_return_5d ?? 0),
     }))
     .sort((left, right) => right.probability - left.probability);
   const topBucket = ranked.slice(0, Math.max(1, Math.ceil(ranked.length * 0.2)));
@@ -139,7 +139,7 @@ export function trainLogisticRegression(rows, featureNames, options = {}) {
     : topBucket.filter((row) => row.label === 1).length / topBucket.length;
   const topBucketAvgExcess = topBucket.length === 0
     ? null
-    : topBucket.reduce((sum, row) => sum + row.actualExcess, 0) / topBucket.length;
+    : topBucket.reduce((sum, row) => sum + row.actualReturn, 0) / topBucket.length;
 
   return {
     model,

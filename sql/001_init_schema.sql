@@ -469,6 +469,17 @@ create table if not exists prediction_evaluation_daily (
         foreign key (model_version) references model_registry (model_version)
 );
 
+create table if not exists model_adjustment_log (
+    adjustment_id varchar(80) primary key,
+    adjustment_scope varchar(20) not null,
+    policy_key varchar(80) not null,
+    previous_value text,
+    new_value text,
+    reason text not null,
+    applied_by varchar(80) not null default 'manual',
+    applied_at timestamp not null default current_timestamp
+);
+
 create table if not exists batch_run_log (
     run_id varchar(64) primary key,
     mode varchar(20) not null,
@@ -549,3 +560,6 @@ create index if not exists idx_stock_prediction_daily_prediction_date
 
 create index if not exists idx_prediction_evaluation_daily_prediction_date
     on prediction_evaluation_daily (prediction_date, entity_type, model_version);
+
+create index if not exists idx_model_adjustment_log_applied_at
+    on model_adjustment_log (applied_at desc, adjustment_scope, policy_key);

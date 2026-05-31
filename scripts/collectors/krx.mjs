@@ -107,6 +107,16 @@ function findIndexRow(rows, names) {
   return rows.find((row) => names.includes(row.IDX_NM) && row.CLSPRC_IDX !== "") ?? null;
 }
 
+function hasMarketFactorValues(row) {
+  return [
+    row.kospi_close,
+    row.kospi_return_1d,
+    row.kosdaq_close,
+    row.kosdaq_return_1d,
+    row.market_total_trading_value,
+  ].some((value) => value !== null && value !== undefined);
+}
+
 function mapIndexRowsToMarketFactors(kospiPayload, kosdaqPayload, tradeDate) {
   const kospiRows = kospiPayload?.OutBlock_1 ?? [];
   const kosdaqRows = kosdaqPayload?.OutBlock_1 ?? [];
@@ -167,8 +177,10 @@ export async function collectMarketFactors(tradeDate) {
   const row = mapIndexRowsToMarketFactors(kospiPayload, kosdaqPayload, tradeDate);
   return {
     collector: "collectMarketFactors",
-    status: Object.keys(row).length > 1 ? "completed" : "empty",
-    detail: "KRX market index payload fetched and mapped.",
+    status: hasMarketFactorValues(row) ? "completed" : "empty",
+    detail: hasMarketFactorValues(row)
+      ? "KRX market index payload fetched and mapped."
+      : "KRX market index payload returned no market rows.",
     source: getEnv("KRX_OPEN_API_BASE_URL", "https://openapi.krx.co.kr"),
     row,
     rows: [],

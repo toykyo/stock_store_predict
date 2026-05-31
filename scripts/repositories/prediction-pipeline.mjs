@@ -802,14 +802,14 @@ export async function getTrainingDataset(client, modelType) {
         f.us_2y_yield_x_biotech,
         f.kr_3y_yield_x_construction,
         f.kosdaq_excess_return_vs_kospi_x_content,
-        t.is_excess_vs_market_5d_fwd as label,
+        case when t.sector_return_5d_fwd > 0 then 1 else 0 end as label,
         t.sector_excess_return_5d_fwd as actual_excess_return_5d,
         t.sector_return_5d_fwd as actual_return_5d
       from sector_feature_daily f
       join sector_target_daily t
         on t.trade_date = f.trade_date
        and t.sector_code = f.sector_code
-      where t.is_excess_vs_market_5d_fwd is not null
+      where t.sector_return_5d_fwd is not null
       order by f.trade_date, f.sector_code
     `);
     return rows;
@@ -868,7 +868,7 @@ export async function getTrainingDataset(client, modelType) {
       f.sp500_return_1d,
       f.vix_close,
       f.vix_return_1d,
-      t.is_excess_vs_sector_5d_fwd as label,
+      case when t.stock_return_5d_fwd > 0 then 1 else 0 end as label,
       t.stock_excess_return_5d_fwd as actual_excess_return_5d,
       t.stock_return_5d_fwd as actual_return_5d
     from stock_feature_daily f
@@ -876,7 +876,7 @@ export async function getTrainingDataset(client, modelType) {
       on t.trade_date = f.trade_date
      and t.ticker = f.ticker
     join stock_master m on m.ticker = f.ticker
-    where t.is_excess_vs_sector_5d_fwd is not null
+    where t.stock_return_5d_fwd is not null
     ${STOCK_MODEL_SEGMENT_EXCLUSION_SQL}
     ${STOCK_MODEL_QUANT_FILTER_SQL}
     order by f.trade_date, f.ticker
@@ -944,7 +944,7 @@ export async function getHistoricalPredictionFeatureRows(client, modelType) {
       join sector_target_daily t
         on t.trade_date = f.trade_date
        and t.sector_code = f.sector_code
-      where t.is_excess_vs_market_5d_fwd is not null
+      where t.sector_return_5d_fwd is not null
       order by f.trade_date, f.sector_code
     `);
     return rows;
@@ -957,7 +957,7 @@ export async function getHistoricalPredictionFeatureRows(client, modelType) {
       on t.trade_date = f.trade_date
      and t.ticker = f.ticker
     join stock_master m on m.ticker = f.ticker
-    where t.is_excess_vs_sector_5d_fwd is not null
+    where t.stock_return_5d_fwd is not null
     ${STOCK_MODEL_SEGMENT_EXCLUSION_SQL}
     ${STOCK_MODEL_QUANT_FILTER_SQL}
     order by f.trade_date, f.ticker
@@ -1039,13 +1039,13 @@ export async function refreshPredictionEvaluations(client) {
       p.probability,
       t.sector_return_5d_fwd,
       t.sector_excess_return_5d_fwd,
-      t.is_excess_vs_market_5d_fwd,
+      case when t.sector_return_5d_fwd > 0 then 1 else 0 end,
       current_timestamp
     from sector_prediction_daily p
     join sector_target_daily t
       on t.trade_date = p.prediction_date
      and t.sector_code = p.sector_code
-    where t.is_excess_vs_market_5d_fwd is not null
+    where t.sector_return_5d_fwd is not null
     on conflict (prediction_date, entity_type, entity_key, model_version) do update
     set predicted_probability = excluded.predicted_probability,
         actual_return_5d = excluded.actual_return_5d,
@@ -1074,13 +1074,13 @@ export async function refreshPredictionEvaluations(client) {
       p.probability,
       t.stock_return_5d_fwd,
       t.stock_excess_return_5d_fwd,
-      t.is_excess_vs_sector_5d_fwd,
+      case when t.stock_return_5d_fwd > 0 then 1 else 0 end,
       current_timestamp
     from stock_prediction_daily p
     join stock_target_daily t
       on t.trade_date = p.prediction_date
      and t.ticker = p.ticker
-    where t.is_excess_vs_sector_5d_fwd is not null
+    where t.stock_return_5d_fwd is not null
     on conflict (prediction_date, entity_type, entity_key, model_version) do update
     set predicted_probability = excluded.predicted_probability,
         actual_return_5d = excluded.actual_return_5d,

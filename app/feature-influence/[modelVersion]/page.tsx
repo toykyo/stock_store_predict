@@ -82,7 +82,7 @@ export default async function FeatureInfluenceDetailPage({
                   <dd>{model.topBucketHitRatio === null ? "-" : `${(model.topBucketHitRatio * 100).toFixed(1)}%`}</dd>
                 </div>
                 <div>
-                  <dt>Top bucket avg excess</dt>
+                  <dt>Top bucket avg return</dt>
                   <dd>{model.topBucketAvgExcess === null ? "-" : `${model.topBucketAvgExcess >= 0 ? "+" : ""}${(model.topBucketAvgExcess * 100).toFixed(2)}%`}</dd>
                 </div>
               </dl>

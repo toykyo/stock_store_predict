@@ -1,0 +1,300 @@
+전체 파라미터 마스터 체크리스트
+
+목적
+- "반영해야 할 모든 요소"를 가능한 넓게 먼저 나열한다.
+- 이후 각 항목에 대해 현재 상태를 표시하면서 관리한다.
+- 상태 값은 아래 3가지를 사용한다.
+  - DONE: 현재 수집/반영 중
+  - PARTIAL: 일부만 반영, 확장 필요
+  - TODO: 아직 미반영
+
+사용 방법
+- 새 변수를 검토할 때 이 파일에 먼저 추가한다.
+- 실제 구현 후 상태를 갱신한다.
+- 모델 feature에 직접 들어가는지, 보조 태그/이벤트 테이블로 관리하는지 비고에 남긴다.
+
+
+[1. 공통 시장 데이터]
+
+| 대분류 | 항목 | 상태 | 비고 |
+|---|---|---|---|
+| 공통 시장 | KOSPI 일간 수익률 | DONE | 현재 반영 중 |
+| 공통 시장 | KOSDAQ 일간 수익률 | DONE | 현재 반영 중 |
+| 공통 시장 | KOSDAQ-KOSPI 상대강도 | DONE | 현재 반영 중 |
+| 공통 시장 | 시장 5일 수익률 | TODO | 직접 변수로는 없음 |
+| 공통 시장 | 시장 20일 수익률 | TODO | 직접 변수로는 없음 |
+| 공통 시장 | 시장 변동성 | TODO | 직접 변수로는 없음 |
+| 공통 시장 | 시장 거래대금 증가율 | TODO | 직접 변수로는 없음 |
+| 공통 시장 | 시장 breadth | TODO | 별도 공통 변수 없음 |
+| 공통 시장 | 원달러 환율 | DONE | 현재 반영 중 |
+| 공통 시장 | 달러지수 DXY | DONE | 현재 반영 중 |
+| 공통 시장 | 한국 3년물 금리 | DONE | 현재 반영 중 |
+| 공통 시장 | 한국 10년물 금리 | DONE | 현재 반영 중 |
+| 공통 시장 | 한국 장단기 스프레드 | DONE | 현재 반영 중 |
+| 공통 시장 | 미국 2년물 금리 | DONE | 현재 반영 중 |
+| 공통 시장 | 미국 10년물 금리 | DONE | 현재 반영 중 |
+| 공통 시장 | 미국 장단기 스프레드 | DONE | 현재 반영 중 |
+| 공통 시장 | 유가 WTI | DONE | 현재 반영 중 |
+| 공통 시장 | 유가 Brent | DONE | 현재 반영 중 |
+| 공통 시장 | S&P500 수익률 | DONE | 현재 반영 중 |
+| 공통 시장 | NASDAQ 수익률 | DONE | 현재 반영 중 |
+| 공통 시장 | SOX 수익률 | DONE | 현재 반영 중 |
+| 공통 시장 | VIX 레벨 | DONE | 현재 반영 중 |
+| 공통 시장 | VIX 변화율 | DONE | 현재 반영 중 |
+| 공통 시장 | 미국 경기지표 서프라이즈 | TODO | 미반영 |
+| 공통 시장 | 중국 경기지표 | TODO | 미반영 |
+| 공통 시장 | 일본 시장 변수 | TODO | 미반영 |
+| 공통 시장 | 유럽 시장 변수 | TODO | 미반영 |
+
+
+[2. 업종 sector 기본 가격/흐름]
+
+| 대분류 | 항목 | 상태 | 비고 |
+|---|---|---|---|
+| sector | sector_return_1d | DONE | 현재 반영 중 |
+| sector | sector_return_5d | DONE | 현재 반영 중 |
+| sector | sector_return_20d | DONE | 현재 반영 중 |
+| sector | sector_volatility_20d | DONE | 현재 반영 중 |
+| sector | sector_breadth_ratio | DONE | 현재 반영 중 |
+| sector | sector_up_ratio_5d | DONE | 현재 반영 중 |
+| sector | sector_trading_value_ratio_5d | DONE | 현재 반영 중 |
+| sector | sector_cross_sectional_volatility_5d | DONE | 현재 반영 중 |
+| sector | sector_excess_vs_market_1d | DONE | 현재 반영 중 |
+| sector | sector_return_concentration_top3 | DONE | 현재 반영 중 |
+| sector | sector_trading_value_concentration_top5 | DONE | 현재 반영 중 |
+| sector | sector_excess_vs_market_5d | PARTIAL | target 성격에는 있으나 feature 중심으로는 약함 |
+| sector | sector_excess_vs_market_20d | TODO | 미반영 |
+| sector | sector 신고가 비율 | TODO | 미반영 |
+| sector | sector 신저가 비율 | TODO | 미반영 |
+| sector | sector turnover | TODO | 미반영 |
+| sector | sector 내 상승/하락 종목 수 절대값 | TODO | 미반영 |
+| sector | sector 내 상한가/급등 종목 수 | TODO | 미반영 |
+| sector | sector 내 거래정지/관리종목 비율 | TODO | 미반영 |
+
+
+[3. 업종 sector 리더십/구성]
+
+| 대분류 | 항목 | 상태 | 비고 |
+|---|---|---|---|
+| sector | leader_stock_return_5d | DONE | 현재 반영 중 |
+| sector | top3_market_cap_avg_return_5d | DONE | 현재 반영 중 |
+| sector | top5_market_cap_avg_return_5d | DONE | 현재 반영 중 |
+| sector | 시총 상위 3개 종목 외국인 순매수 합 | TODO | 미반영 |
+| sector | 시총 상위 3개 종목 기관 순매수 합 | TODO | 미반영 |
+| sector | 대장주 거래대금 점유율 | TODO | 미반영 |
+| sector | 대장주 변동성 | TODO | 미반영 |
+| sector | 대장주 쏠림 위험도 | TODO | 미반영 |
+| sector | 업종 내 소형주 강세 여부 | TODO | 미반영 |
+| sector | 업종 내 시총별 수익률 차이 | TODO | 미반영 |
+
+
+[4. 개별 종목 기본 가격/흐름]
+
+| 대분류 | 항목 | 상태 | 비고 |
+|---|---|---|---|
+| stock | stock_return_1d | DONE | 현재 반영 중 |
+| stock | stock_return_5d | DONE | 현재 반영 중 |
+| stock | stock_return_20d | DONE | 현재 반영 중 |
+| stock | stock_volatility_20d | DONE | 현재 반영 중 |
+| stock | trading_value_ratio_5d | DONE | 현재 반영 중 |
+| stock | stock_turnover_ratio | DONE | 현재 반영 중 |
+| stock | relative_volume_5d | DONE | 현재 반영 중 |
+| stock | relative_volume_20d | DONE | 현재 반영 중 |
+| stock | price_vs_ma20 | DONE | 현재 반영 중 |
+| stock | price_vs_ma60 | DONE | 현재 반영 중 |
+| stock | 20일 고점 대비 거리 | DONE | 현재 반영 중 |
+| stock | 60일 고점 대비 거리 | DONE | 현재 반영 중 |
+| stock | sector 대비 상대강도 20d | DONE | 현재 반영 중 |
+| stock | sector 내 5일 수익률 순위 | DONE | 현재 반영 중 |
+| stock | beta vs market | TODO | 미반영 |
+| stock | idiosyncratic volatility | TODO | 미반영 |
+| stock | gap up/down 빈도 | TODO | 미반영 |
+| stock | 연속 상승/하락 일수 | TODO | 미반영 |
+| stock | 신고가/신저가 갱신 여부 | TODO | 미반영 |
+| stock | 캔들/갭 패턴 지표 | TODO | 미반영 |
+
+
+[5. 개별 종목 수급]
+
+| 대분류 | 항목 | 상태 | 비고 |
+|---|---|---|---|
+| stock | 거래대금 비율 | DONE | 현재 반영 중 |
+| stock | 회전율 | DONE | 현재 반영 중 |
+| stock | 외국인 순매수 1d | TODO | 미반영 |
+| stock | 외국인 순매수 5d | TODO | 미반영 |
+| stock | 외국인 순매수 20d | TODO | 미반영 |
+| stock | 기관 순매수 1d | TODO | 미반영 |
+| stock | 기관 순매수 5d | TODO | 미반영 |
+| stock | 기관 순매수 20d | TODO | 미반영 |
+| stock | 개인 순매수 1d | TODO | 미반영 |
+| stock | 개인 순매수 5d | TODO | 미반영 |
+| stock | 연기금 순매수 | TODO | 미반영 |
+| stock | 투신 순매수 | TODO | 미반영 |
+| stock | 사모 순매수 | TODO | 미반영 |
+| stock | 외국인 보유비율 | TODO | 미반영 |
+| stock | 외국인 보유비율 변화 | TODO | 미반영 |
+| stock | 공매도 비중 | TODO | 미반영 |
+| stock | 공매도 잔고 | TODO | 미반영 |
+| stock | 공매도 잔고 변화 | TODO | 미반영 |
+| stock | 대차잔고 | TODO | 미반영 |
+| stock | 대차잔고 변화 | TODO | 미반영 |
+| stock | 브로커/창구 수급 | TODO | 유료 API 가능성 큼 |
+
+
+[6. 개별 종목 재무/밸류에이션]
+
+| 대분류 | 항목 | 상태 | 비고 |
+|---|---|---|---|
+| stock | market_cap_log | DONE | 현재 반영 중 |
+| stock | 시가총액 | PARTIAL | 로그 형태만 반영 |
+| stock | 유동주식비율 | TODO | 미반영 |
+| stock | PER | TODO | 미반영 |
+| stock | PBR | TODO | 미반영 |
+| stock | PSR | TODO | 미반영 |
+| stock | EV/EBITDA | TODO | 미반영 |
+| stock | ROE | TODO | 미반영 |
+| stock | ROA | TODO | 미반영 |
+| stock | 영업이익률 | TODO | 미반영 |
+| stock | 순이익률 | TODO | 미반영 |
+| stock | 매출 성장률 | TODO | 미반영 |
+| stock | 영업이익 성장률 | TODO | 미반영 |
+| stock | EPS 성장률 | TODO | 미반영 |
+| stock | 부채비율 | TODO | 미반영 |
+| stock | 이자보상배율 | TODO | 미반영 |
+| stock | 영업현금흐름 | TODO | 미반영 |
+| stock | FCF | TODO | 미반영 |
+| stock | CAPEX | TODO | 미반영 |
+| stock | 재고자산 증가율 | TODO | 미반영 |
+| stock | 매출채권 증가율 | TODO | 미반영 |
+
+
+[7. 공시/이벤트]
+
+| 대분류 | 항목 | 상태 | 비고 |
+|---|---|---|---|
+| event | total_disclosure_count_1d | DONE | 현재 반영 중 |
+| event | periodic_disclosure_count_1d | DONE | 현재 반영 중 |
+| event | major_issue_disclosure_count_1d | DONE | 현재 반영 중 |
+| event | issuance_disclosure_count_1d | DONE | 현재 반영 중 |
+| event | equity_disclosure_count_1d | DONE | 현재 반영 중 |
+| event | other_disclosure_count_1d | DONE | 현재 반영 중 |
+| event | is_earnings_disclosure_day | DONE | 현재 반영 중 |
+| event | is_capital_raise_disclosure_day | DONE | 현재 반영 중 |
+| event | is_order_contract_disclosure_day | DONE | 현재 반영 중 |
+| event | is_major_corporate_action_day | DONE | 현재 반영 중 |
+| event | 실적 발표 예정일 | TODO | forward event calendar 필요 |
+| event | 실적 서프라이즈 | TODO | 외부 추정치 필요 |
+| event | 수주 금액 규모 정규화 | TODO | 공시 파싱 확장 필요 |
+| event | 자사주 매입/소각 | TODO | 별도 분류 강화 필요 |
+| event | M&A / 최대주주 변경 | TODO | 분류 강화 필요 |
+| event | 소송 / 거래정지 / 감사의견 | TODO | 리스크 분류 필요 |
+| event | 임상 / 허가 / 기술수출 | TODO | 바이오 특화 이벤트 |
+
+
+[8. 뉴스/텍스트/NLP]
+
+| 대분류 | 항목 | 상태 | 비고 |
+|---|---|---|---|
+| news | 종목 뉴스 건수 1d | TODO | 미반영 |
+| news | 종목 뉴스 건수 5d | TODO | 미반영 |
+| news | 종목 뉴스 감성 점수 | TODO | 미반영 |
+| news | sector 뉴스 건수 | TODO | 미반영 |
+| news | sector 뉴스 감성 점수 | TODO | 미반영 |
+| news | 키워드 군집 점수 | TODO | 미반영 |
+| news | 전쟁/정치/규제 이벤트 점수 | TODO | 미반영 |
+| news | 경영진 발언 감성 | TODO | 미반영 |
+| news | 리포트 요약 감성 | TODO | 유료/텍스트 수집 필요 |
+
+
+[9. 업종별 driver: 반도체/화학/금융 등]
+
+| 대분류 | 항목 | 상태 | 비고 |
+|---|---|---|---|
+| driver | SOX x semiconductor | DONE | 현재 반영 중 |
+| driver | NASDAQ x semiconductor | DONE | 현재 반영 중 |
+| driver | WTI x chemical | DONE | 현재 반영 중 |
+| driver | Brent x chemical | DONE | 현재 반영 중 |
+| driver | KR 3Y x financial | DONE | 현재 반영 중 |
+| driver | Term spread x financial | DONE | 현재 반영 중 |
+| driver | KOSDAQ 상대강도 x content | DONE | 현재 반영 중 |
+| driver | DRAM 가격 | TODO | 반도체 핵심 변수 |
+| driver | NAND 가격 | TODO | 반도체 핵심 변수 |
+| driver | HBM 관련 가격/수요 | TODO | 반도체 핵심 변수 |
+| driver | TSMC/NVIDIA/삼성전자/하이닉스 리더 변수 | TODO | 반도체 대표주 영향 |
+| driver | 서버/스마트폰 출하 전망 | TODO | 반도체 업황 변수 |
+| driver | AI CAPEX 지표 | TODO | 반도체/전력 수요 변수 |
+| driver | 납사 가격 | TODO | 화학 핵심 변수 |
+| driver | 정제마진 | TODO | 정유 핵심 변수 |
+| driver | 철광석/석탄 가격 | TODO | 철강 핵심 변수 |
+| driver | 운임지수 SCFI/BDI | TODO | 해운/물류 핵심 변수 |
+| driver | 광고경기/흥행지표 | TODO | 콘텐츠 핵심 변수 |
+| driver | 예대마진 proxy | TODO | 금융 핵심 변수 |
+| driver | 원전/방산 수주 이벤트 | TODO | 정책/수주 업종 변수 |
+| driver | 바이오 임상 단계/허가 이벤트 | TODO | 바이오 핵심 변수 |
+
+
+[10. 글로벌 peer / 대체제 / 경쟁재]
+
+| 대분류 | 항목 | 상태 | 비고 |
+|---|---|---|---|
+| global peer | 해외 동종업종 ETF 수익률 | TODO | 미반영 |
+| global peer | 경쟁사 주가 수익률 | TODO | 미반영 |
+| global peer | 대체재 가격 상승률 | TODO | 미반영 |
+| global peer | 원재료 가격 | PARTIAL | 유가 일부만 반영 |
+| global peer | 공급망 병목 지표 | TODO | 미반영 |
+| global peer | 글로벌 재고/출하량 | TODO | 미반영 |
+
+
+[11. 테마/정책/수동 태그]
+
+| 대분류 | 항목 | 상태 | 비고 |
+|---|---|---|---|
+| tag | 테마 태그(AI, 2차전지, 로봇 등) | TODO | 수동 관리 필요 |
+| tag | 정책 수혜 태그 | TODO | 수동 관리 필요 |
+| tag | 규제 리스크 태그 | TODO | 수동 관리 필요 |
+| tag | 금리 민감 태그 | TODO | 수동 관리 필요 |
+| tag | 환율 민감 태그 | TODO | 수동 관리 필요 |
+| tag | 수출주/내수주 태그 | TODO | 수동 관리 필요 |
+| tag | 중국 노출 태그 | TODO | 수동 관리 필요 |
+| tag | 경기민감/방어주 태그 | TODO | 수동 관리 필요 |
+| tag | 지배구조 리스크 태그 | TODO | 수동 관리 필요 |
+| tag | 회계/감사의견 주의 태그 | TODO | 수동 관리 필요 |
+
+
+[12. 평가/운영 보조 지표]
+
+| 대분류 | 항목 | 상태 | 비고 |
+|---|---|---|---|
+| 운영 | feature별 출처 레지스트리 | TODO | 관리용 메타 필요 |
+| 운영 | feature 갱신 주기 관리 | TODO | 관리용 메타 필요 |
+| 운영 | feature 결측률 모니터링 | TODO | 품질관리 필요 |
+| 운영 | feature drift 감지 | TODO | 모델 운영 고도화 |
+| 운영 | sector별 성능 비교 | PARTIAL | 화면 일부 존재 |
+| 운영 | 종목군별 성능 비교 | TODO | 세그먼트 분석 필요 |
+| 운영 | 확률 calibration 분석 | TODO | 모델 신뢰도 평가 필요 |
+
+
+[우선 구현 후보]
+
+| 우선순위 | 대상 | 항목 |
+|---|---|---|
+| 1 | stock | 외국인/기관 순매수 1d/5d/20d |
+| 1 | stock | 공매도 잔고 / 공매도 비중 |
+| 1 | stock | PER / PBR / ROE / 매출 성장률 / 영업이익 성장률 |
+| 1 | news | 종목 뉴스 건수 / 종목 뉴스 감성 |
+| 1 | sector | 업종 상위 시총 종목 수급 합성 |
+| 1 | sector | 업종 뉴스량 / 업종 뉴스 감성 |
+| 1 | driver | 반도체 DRAM/NAND 가격 |
+| 1 | tag | 테마 태그 / 정책 수혜 태그 / 금리·환율 민감 태그 |
+| 2 | driver | 정제마진 / 납사 / 운임지수 / 광고경기 |
+| 2 | event | 실적 발표 예정일 / 실적 서프라이즈 |
+| 2 | global peer | 해외 동종업종 ETF / 경쟁사 주가 |
+
+
+[체크 규칙]
+
+- 새 항목을 추가할 때는 먼저 TODO로 넣는다.
+- 현재 코드 또는 DB에 부분 반영만 되어 있으면 PARTIAL로 둔다.
+- 모델 feature 또는 운영 태그로 실제 사용 중이면 DONE으로 바꾼다.
+- 비고에는 데이터 소스와 구현 위치를 남긴다.
+

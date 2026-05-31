@@ -1,9 +1,11 @@
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 
 import type {
   CurrentSectorStockRow,
   MonitoringOverview,
   PredictedSectorStockRow,
+  PredictionHistoryDetail,
+  PredictionHistoryRow,
   SectorDetail,
 } from "./shared";
 
@@ -72,6 +74,68 @@ function toFeatureInfluences(metadata: Record<string, unknown>) {
     .sort((left, right) => Math.abs(right.weight) - Math.abs(left.weight));
 }
 
+function getCurrentPolicies() {
+  return [
+    {
+      scope: "sector" as const,
+      policyKey: "sector_top_rank_cutoff",
+      label: "Sector top rank cutoff",
+      value: "Top 5",
+      note: "Sector history and evaluation use top 5 sector predictions.",
+    },
+    {
+      scope: "stock" as const,
+      policyKey: "stock_top_rank_cutoff",
+      label: "Stock top rank cutoff",
+      value: "Top 20",
+      note: "Prediction history and evaluation use top 20 stock predictions.",
+    },
+    {
+      scope: "stock" as const,
+      policyKey: "stock_selection_mode",
+      label: "Stock selection mode",
+      value: "Top sectors only",
+      note: "Stock model is evaluated only inside sectors selected by the sector model.",
+    },
+    {
+      scope: "stock" as const,
+      policyKey: "stock_filter_v2",
+      label: "Stock filter",
+      value: "Liquidity + cap + price + coverage",
+      note: "20D avg trading value >= 5억, market cap >= 300억, close >= 1000, coverage >= 80%.",
+    },
+    {
+      scope: "service" as const,
+      policyKey: "nightly_schedule",
+      label: "Nightly schedule",
+      value: "00:30 Asia/Seoul",
+      note: "Backfill, train, evaluate, predict run nightly.",
+    },
+  ];
+}
+
+async function queryLatestAdjustments(client: PoolClient): Promise<{ rows: Record<string, unknown>[] }> {
+  try {
+    return await client.query(`
+      select adjustment_id, adjustment_scope, policy_key, previous_value, new_value, reason, applied_by, applied_at
+      from model_adjustment_log
+      order by applied_at desc
+      limit 12
+    `);
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "42P01"
+    ) {
+      return { rows: [] };
+    }
+
+    throw error;
+  }
+}
+
 export async function getMonitoringOverview(requestedSectorCode: string | null = null): Promise<MonitoringOverview> {
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is required for monitoring.");
@@ -80,7 +144,7 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
   const client = await getPool().connect();
 
   try {
-    const [statusResult, modelResult] = await Promise.all([
+    const [statusResult, modelResult, adjustmentResult] = await Promise.all([
       client.query(`
         select
           (select max(trade_date) from stock_daily_snapshot) as latest_stock_trade_date,
@@ -110,6 +174,7 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
         where status = 'active'
         order by model_type, created_at desc
       `),
+      queryLatestAdjustments(client),
     ]);
 
     const statusRow = statusResult.rows[0] ?? {};
@@ -134,6 +199,7 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
 
     const activeSectorModelVersion = activeModels.find((entry) => entry.modelType === "sector")?.modelVersion ?? null;
     const activeStockModelVersion = activeModels.find((entry) => entry.modelType === "stock")?.modelVersion ?? null;
+    const currentPolicies = getCurrentPolicies();
 
     const latestPredictionResult = await client.query(
       `
@@ -155,6 +221,12 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
             from sector_prediction_daily
             where model_version = $1
           ),
+          previous_prediction_date as (
+            select max(prediction_date) as prediction_date
+            from sector_prediction_daily
+            where model_version = $1
+              and prediction_date < (select prediction_date from latest)
+          ),
           latest_actual as (
             select max(trade_date) as trade_date
             from sector_daily_snapshot
@@ -172,10 +244,24 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
           previous as (
             select
               sector_code,
-              rank,
-              row_number() over (partition by sector_code, model_version order by prediction_date desc) as rn
+              rank
             from sector_prediction_daily
             where model_version = $1
+              and prediction_date = (select prediction_date from previous_prediction_date)
+          ),
+          latest_stock_prediction_date as (
+            select max(prediction_date) as prediction_date
+            from stock_prediction_daily
+            where model_version = $2
+          ),
+          latest_predicted_stock_counts as (
+            select
+              p.sector_code,
+              count(*)::integer as predicted_stock_count
+            from stock_prediction_daily p
+            join latest_stock_prediction_date lp on lp.prediction_date = p.prediction_date
+            where p.model_version = $2
+            group by p.sector_code
           ),
           latest_actual_stocks as (
             select
@@ -204,20 +290,21 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
             prev.rank as previous_rank,
             car.current_rank,
             car.trade_date as current_rank_trade_date,
+            lpsc.predicted_stock_count,
             concat_ws(' ', p.sector_code, p.sector_name, las.stock_names, las.tickers) as search_keywords
           from sector_prediction_daily p
           join latest l on l.prediction_date = p.prediction_date
           left join current_actual_rank car on car.sector_code = p.sector_code
+          left join latest_predicted_stock_counts lpsc on lpsc.sector_code = p.sector_code
           left join latest_actual_stocks las
             on las.sector_name = p.sector_name
            and las.market = case when p.sector_code like 'P\\_%' escape '\\' then 'KOSPI' else 'KOSDAQ' end
           left join previous prev
             on prev.sector_code = p.sector_code
-           and prev.rn = 2
           where p.model_version = $1
           order by p.rank
         `,
-        [activeSectorModelVersion],
+        [activeSectorModelVersion, activeStockModelVersion],
       )
       : { rows: [] };
 
@@ -231,6 +318,7 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
           select
             s.market,
             c.sector_name,
+            count(*)::integer as stock_count,
             string_agg(distinct coalesce(m.name_kr, s.name_kr), ' ' order by coalesce(m.name_kr, s.name_kr)) as stock_names,
             string_agg(distinct s.ticker, ' ' order by s.ticker) as tickers
           from stock_daily_snapshot s
@@ -247,6 +335,7 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
           s.sector_name,
           s.market,
           s.sector_return_1d,
+          las.stock_count,
           concat_ws(' ', s.sector_code, s.sector_name, las.stock_names, las.tickers) as search_keywords,
           row_number() over (
             order by s.sector_return_1d desc nulls last, s.sector_name, s.sector_code
@@ -266,6 +355,7 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
       sectorName: String(row.sector_name),
       probability: Number(row.probability),
       rank: Number(row.rank),
+      predictedStockCount: Number(row.predicted_stock_count ?? 0),
       currentRank: row.current_rank === null ? null : Number(row.current_rank),
       currentRankTradeDate: toDateText(row.current_rank_trade_date),
       previousRank: row.previous_rank === null ? null : Number(row.previous_rank),
@@ -279,6 +369,7 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
       sectorName: String(row.sector_name),
       market: row.market ? String(row.market) : null,
       currentRank: Number(row.current_rank),
+      currentStockCount: Number(row.stock_count ?? 0),
       sectorReturn1d: toNumber(row.sector_return_1d),
       searchKeywords: String(row.search_keywords ?? ""),
     }));
@@ -296,13 +387,19 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
             from stock_prediction_daily
             where model_version = $1
           ),
+          previous_prediction_date as (
+            select max(prediction_date) as prediction_date
+            from stock_prediction_daily
+            where model_version = $1
+              and prediction_date < (select prediction_date from latest)
+          ),
           previous as (
             select
               ticker,
-              rank,
-              row_number() over (partition by ticker, model_version order by prediction_date desc) as rn
+              rank
             from stock_prediction_daily
             where model_version = $1
+              and prediction_date = (select prediction_date from previous_prediction_date)
           )
           select
             p.prediction_date,
@@ -318,7 +415,6 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
           join stock_master m on m.ticker = p.ticker
           left join previous prev
             on prev.ticker = p.ticker
-           and prev.rn = 2
           where p.model_version = $1
             and ($2::varchar is null or p.sector_code = $2)
           order by p.rank
@@ -330,33 +426,41 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
 
     const performanceResult = await client.query(
       `
-        with ranked_eval as (
+        with selected_predictions as (
           select
             prediction_date,
-            entity_type,
-            model_version,
+            'sector'::varchar as entity_type,
+            sector_code as entity_key,
+            model_version
+          from sector_prediction_daily
+          where model_version = $1
+            and rank <= 5
+          union all
+          select
+            prediction_date,
+            'stock'::varchar as entity_type,
+            ticker as entity_key,
+            model_version
+          from stock_prediction_daily
+          where model_version = $2
+            and rank <= 20
+        ),
+        ranked_eval as (
+          select
+            e.prediction_date,
+            e.entity_type,
+            e.model_version,
             count(*) filter (where hit_flag = 1)::integer as hit_count,
             count(*)::integer as total_count,
-            avg(actual_excess_return_5d) as avg_excess_return,
+            avg(actual_return_5d) as avg_excess_return,
             avg(predicted_probability) as avg_probability
-          from prediction_evaluation_daily
-          where (
-            (entity_type = 'sector' and model_version = $1 and entity_key in (
-              select sector_code
-              from sector_prediction_daily sp
-              where sp.prediction_date = prediction_evaluation_daily.prediction_date
-                and sp.model_version = prediction_evaluation_daily.model_version
-                and sp.rank <= 5
-            )) or
-            (entity_type = 'stock' and model_version = $2 and entity_key in (
-              select ticker
-              from stock_prediction_daily sp
-              where sp.prediction_date = prediction_evaluation_daily.prediction_date
-                and sp.model_version = prediction_evaluation_daily.model_version
-                and sp.rank <= 20
-            ))
-          )
-          group by prediction_date, entity_type, model_version
+          from prediction_evaluation_daily e
+          join selected_predictions sp
+            on sp.prediction_date = e.prediction_date
+           and sp.entity_type = e.entity_type
+           and sp.entity_key = e.entity_key
+           and sp.model_version = e.model_version
+          group by e.prediction_date, e.entity_type, e.model_version
         )
         select *
         from ranked_eval
@@ -365,6 +469,79 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
       `,
       [activeSectorModelVersion, activeStockModelVersion],
     );
+
+    const predictionHistoryResult = await client.query(
+      `
+        with sector_history as (
+          select
+            p.prediction_date,
+            'sector'::varchar as entity_type,
+            p.sector_code as entity_key,
+            p.sector_name as display_name,
+            p.sector_name,
+            p.model_version,
+            p.rank as predicted_rank,
+            p.probability as predicted_probability
+          from sector_prediction_daily p
+          where p.model_version = $1
+            and p.rank <= 5
+        ),
+        stock_history as (
+          select
+            p.prediction_date,
+            'stock'::varchar as entity_type,
+            p.ticker as entity_key,
+            coalesce(m.name_kr, p.ticker) as display_name,
+            p.sector_name,
+            p.model_version,
+            p.rank as predicted_rank,
+            p.probability as predicted_probability
+          from stock_prediction_daily p
+          left join stock_master m on m.ticker = p.ticker
+          where p.model_version = $2
+            and p.rank <= 20
+        ),
+        combined as (
+          select * from sector_history
+          union all
+          select * from stock_history
+        )
+        select
+          c.prediction_date,
+          c.entity_type,
+          c.entity_key,
+          c.display_name,
+          c.sector_name,
+          c.model_version,
+          c.predicted_rank,
+          c.predicted_probability,
+          e.actual_return_5d as actual_excess_return_5d,
+          e.hit_flag
+        from combined c
+        left join prediction_evaluation_daily e
+          on e.prediction_date = c.prediction_date
+         and e.entity_type = c.entity_type
+         and e.entity_key = c.entity_key
+         and e.model_version = c.model_version
+        order by c.prediction_date desc, c.entity_type, c.predicted_rank
+        limit 24
+      `,
+      [activeSectorModelVersion, activeStockModelVersion],
+    );
+
+    const predictionHistory: PredictionHistoryRow[] = predictionHistoryResult.rows.map((row) => ({
+      predictionDate: toDateText(row.prediction_date),
+      entityType: String(row.entity_type) === "sector" ? "sector" : "stock",
+      entityKey: String(row.entity_key),
+      displayName: String(row.display_name),
+      sectorName: row.sector_name ? String(row.sector_name) : null,
+      modelVersion: String(row.model_version),
+      predictedRank: Number(row.predicted_rank),
+      predictedProbability: Number(row.predicted_probability),
+      actualExcessReturn5d: toNumber(row.actual_excess_return_5d),
+      hitFlag: row.hit_flag === null ? null : Number(row.hit_flag),
+      evaluated: row.hit_flag !== null,
+    }));
 
     return {
       dataStatus: {
@@ -401,6 +578,18 @@ export async function getMonitoringOverview(requestedSectorCode: string | null =
         hitRatio: Number(row.total_count ?? 0) > 0 ? Number(row.hit_count ?? 0) / Number(row.total_count) : 0,
         avgExcessReturn: toNumber(row.avg_excess_return),
         avgProbability: toNumber(row.avg_probability),
+      })),
+      predictionHistory,
+      currentPolicies,
+      latestAdjustments: adjustmentResult.rows.map((row) => ({
+        adjustmentId: String(row.adjustment_id),
+        adjustmentScope: String(row.adjustment_scope),
+        policyKey: String(row.policy_key),
+        previousValue: row.previous_value ? String(row.previous_value) : null,
+        newValue: row.new_value ? String(row.new_value) : null,
+        reason: String(row.reason),
+        appliedBy: String(row.applied_by),
+        appliedAt: new Date(String(row.applied_at)).toISOString(),
       })),
     };
   } finally {
@@ -480,7 +669,7 @@ export async function getSectorDetail(sectorCode: string): Promise<SectorDetail 
           select
             prediction_date,
             predicted_probability,
-            actual_excess_return_5d
+            actual_return_5d as actual_excess_return_5d
           from prediction_evaluation_daily
           where entity_type = 'sector'
             and entity_key = $1
@@ -653,6 +842,370 @@ export async function getPredictedSectorStocks(sectorCode: string): Promise<Pred
       rank: Number(row.rank),
       probability: Number(row.probability),
     }));
+  } finally {
+    client.release();
+  }
+}
+
+export async function getPredictionHistoryDetail(selectedPredictionDate: string | null = null): Promise<PredictionHistoryDetail> {
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required for prediction history detail.");
+  }
+
+  const normalizedPredictionDate =
+    selectedPredictionDate && /^\d{4}-\d{2}-\d{2}$/.test(selectedPredictionDate) ? selectedPredictionDate : null;
+
+  const client = await getPool().connect();
+
+  try {
+    const modelResult = await client.query(`
+      select model_version, model_type
+      from model_registry
+      where status = 'active'
+        and model_type in ('sector', 'stock')
+      order by model_type, created_at desc
+    `);
+
+    const activeSectorModelVersion = modelResult.rows.find((row) => String(row.model_type) === "sector")?.model_version
+      ? String(modelResult.rows.find((row) => String(row.model_type) === "sector")?.model_version)
+      : null;
+    const activeStockModelVersion = modelResult.rows.find((row) => String(row.model_type) === "stock")?.model_version
+      ? String(modelResult.rows.find((row) => String(row.model_type) === "stock")?.model_version)
+      : null;
+
+    const [seriesResult, rowsResult, diagnosticsResult, availableDatesResult] = await Promise.all([
+      client.query(
+        `
+          with sector_series as (
+            select
+              p.prediction_date,
+              'sector'::varchar as entity_type,
+              avg(p.probability) as avg_predicted_probability,
+              avg(e.actual_return_5d) as avg_actual_excess_return_5d,
+              avg(e.hit_flag::numeric) as hit_ratio,
+              count(*)::integer as total_count,
+              count(e.hit_flag)::integer as evaluated_count
+            from sector_prediction_daily p
+            left join prediction_evaluation_daily e
+              on e.prediction_date = p.prediction_date
+             and e.entity_type = 'sector'
+             and e.entity_key = p.sector_code
+             and e.model_version = p.model_version
+            where p.model_version = $1
+              and p.rank <= 5
+            group by p.prediction_date
+          ),
+          stock_series as (
+            select
+              p.prediction_date,
+              'stock'::varchar as entity_type,
+              avg(p.probability) as avg_predicted_probability,
+              avg(e.actual_return_5d) as avg_actual_excess_return_5d,
+              avg(e.hit_flag::numeric) as hit_ratio,
+              count(*)::integer as total_count,
+              count(e.hit_flag)::integer as evaluated_count
+            from stock_prediction_daily p
+            left join prediction_evaluation_daily e
+              on e.prediction_date = p.prediction_date
+             and e.entity_type = 'stock'
+             and e.entity_key = p.ticker
+             and e.model_version = p.model_version
+            where p.model_version = $2
+              and p.rank <= 20
+            group by p.prediction_date
+          )
+          select *
+          from (
+            select * from sector_series
+            union all
+            select * from stock_series
+          ) series
+          order by prediction_date
+        `,
+        [activeSectorModelVersion, activeStockModelVersion],
+      ),
+      client.query(
+        `
+          with sector_history as (
+            select
+              p.prediction_date,
+              'sector'::varchar as entity_type,
+              p.sector_code as entity_key,
+              p.sector_name as display_name,
+              p.sector_name,
+              p.model_version,
+              p.rank as predicted_rank,
+              p.probability as predicted_probability
+            from sector_prediction_daily p
+            where p.model_version = $1
+              and p.rank <= 5
+          ),
+          stock_history as (
+            select
+              p.prediction_date,
+              'stock'::varchar as entity_type,
+              p.ticker as entity_key,
+              coalesce(m.name_kr, p.ticker) as display_name,
+              p.sector_name,
+              p.model_version,
+              p.rank as predicted_rank,
+              p.probability as predicted_probability
+            from stock_prediction_daily p
+            left join stock_master m on m.ticker = p.ticker
+            where p.model_version = $2
+              and p.rank <= 20
+          ),
+          combined as (
+            select * from sector_history
+            union all
+            select * from stock_history
+          )
+          select
+            c.prediction_date,
+            c.entity_type,
+            c.entity_key,
+            c.display_name,
+            c.sector_name,
+            c.model_version,
+            c.predicted_rank,
+            c.predicted_probability,
+            e.actual_return_5d as actual_excess_return_5d,
+            e.hit_flag
+          from combined c
+          left join prediction_evaluation_daily e
+            on e.prediction_date = c.prediction_date
+           and e.entity_type = c.entity_type
+           and e.entity_key = c.entity_key
+           and e.model_version = c.model_version
+          where ($3::date is null or c.prediction_date = $3::date)
+          order by c.prediction_date desc, c.entity_type, c.predicted_rank
+          limit 400
+        `,
+        [activeSectorModelVersion, activeStockModelVersion, normalizedPredictionDate],
+      ),
+      client.query(
+        `
+          with available_dates as (
+            select prediction_date
+            from sector_prediction_daily
+            where model_version = $1
+            union
+            select prediction_date
+            from stock_prediction_daily
+            where model_version = $2
+          )
+          select prediction_date
+          from available_dates
+          order by prediction_date desc
+          limit 180
+        `,
+        [activeSectorModelVersion, activeStockModelVersion],
+      ),
+      client.query(
+        `
+          with sector_history as (
+            select
+              p.prediction_date,
+              'sector'::varchar as entity_type,
+              p.sector_code as entity_key,
+              p.sector_name as display_name,
+              p.sector_name,
+              p.model_version,
+              p.rank as predicted_rank,
+              p.probability as predicted_probability,
+              e.actual_return_5d as actual_excess_return_5d,
+              e.hit_flag
+            from sector_prediction_daily p
+            join prediction_evaluation_daily e
+              on e.prediction_date = p.prediction_date
+             and e.entity_type = 'sector'
+             and e.entity_key = p.sector_code
+             and e.model_version = p.model_version
+            where p.model_version = $1
+              and p.rank <= 5
+          ),
+          stock_history as (
+            select
+              p.prediction_date,
+              'stock'::varchar as entity_type,
+              p.ticker as entity_key,
+              coalesce(m.name_kr, p.ticker) as display_name,
+              p.sector_name,
+              p.model_version,
+              p.rank as predicted_rank,
+              p.probability as predicted_probability,
+              e.actual_return_5d as actual_excess_return_5d,
+              e.hit_flag
+            from stock_prediction_daily p
+            left join stock_master m on m.ticker = p.ticker
+            join prediction_evaluation_daily e
+              on e.prediction_date = p.prediction_date
+             and e.entity_type = 'stock'
+             and e.entity_key = p.ticker
+             and e.model_version = p.model_version
+            where p.model_version = $2
+              and p.rank <= 20
+          ),
+          combined as (
+            select * from sector_history
+            union all
+            select * from stock_history
+          ),
+          probability_buckets as (
+            select
+              'bucket'::varchar as row_type,
+              entity_type,
+              case
+                when predicted_probability < 0.40 then '< 40%'
+                when predicted_probability < 0.50 then '40-49%'
+                when predicted_probability < 0.60 then '50-59%'
+                when predicted_probability < 0.70 then '60-69%'
+                else '70%+'
+              end as label,
+              null::varchar as sector_name,
+              null::integer as predicted_rank,
+              count(*)::integer as row_count,
+              avg(hit_flag::numeric) as hit_ratio,
+              avg(actual_excess_return_5d) as avg_excess_return_5d
+            from combined
+            group by entity_type,
+              case
+                when predicted_probability < 0.40 then '< 40%'
+                when predicted_probability < 0.50 then '40-49%'
+                when predicted_probability < 0.60 then '50-59%'
+                when predicted_probability < 0.70 then '60-69%'
+                else '70%+'
+              end
+          ),
+          rank_diagnostics as (
+            select
+              'rank'::varchar as row_type,
+              entity_type,
+              null::varchar as label,
+              null::varchar as sector_name,
+              predicted_rank,
+              count(*)::integer as row_count,
+              avg(hit_flag::numeric) as hit_ratio,
+              avg(actual_excess_return_5d) as avg_excess_return_5d
+            from combined
+            group by entity_type, predicted_rank
+          ),
+          weak_sector_rows as (
+            select
+              'weak_sector'::varchar as row_type,
+              'stock'::varchar as entity_type,
+              null::varchar as label,
+              sector_name,
+              null::integer as predicted_rank,
+              count(*)::integer as row_count,
+              avg(hit_flag::numeric) as hit_ratio,
+              avg(actual_excess_return_5d) as avg_excess_return_5d,
+              row_number() over (
+                order by avg(actual_excess_return_5d) asc nulls last, count(*) desc, sector_name
+              ) as rn
+            from combined
+            where entity_type = 'stock'
+              and sector_name is not null
+            group by sector_name
+          )
+          select row_type, entity_type, label, sector_name, predicted_rank, row_count, hit_ratio, avg_excess_return_5d
+          from probability_buckets
+          union all
+          select row_type, entity_type, label, sector_name, predicted_rank, row_count, hit_ratio, avg_excess_return_5d
+          from rank_diagnostics
+          union all
+          select row_type, entity_type, label, sector_name, predicted_rank, row_count, hit_ratio, avg_excess_return_5d
+          from weak_sector_rows
+          where rn <= 10
+        `,
+        [activeSectorModelVersion, activeStockModelVersion],
+      ),
+    ]);
+
+    const sectorSeries = seriesResult.rows
+      .filter((row) => String(row.entity_type) === "sector")
+      .map((row) => ({
+        predictionDate: toDateText(row.prediction_date) ?? "",
+        avgPredictedProbability: toNumber(row.avg_predicted_probability),
+        avgActualExcessReturn5d: toNumber(row.avg_actual_excess_return_5d),
+        hitRatio: toNumber(row.hit_ratio),
+        totalCount: Number(row.total_count ?? 0),
+        evaluatedCount: Number(row.evaluated_count ?? 0),
+      }));
+
+    const stockSeries = seriesResult.rows
+      .filter((row) => String(row.entity_type) === "stock")
+      .map((row) => ({
+        predictionDate: toDateText(row.prediction_date) ?? "",
+        avgPredictedProbability: toNumber(row.avg_predicted_probability),
+        avgActualExcessReturn5d: toNumber(row.avg_actual_excess_return_5d),
+        hitRatio: toNumber(row.hit_ratio),
+        totalCount: Number(row.total_count ?? 0),
+        evaluatedCount: Number(row.evaluated_count ?? 0),
+      }));
+
+    const rows: PredictionHistoryRow[] = rowsResult.rows.map((row) => ({
+      predictionDate: toDateText(row.prediction_date),
+      entityType: String(row.entity_type) === "sector" ? "sector" : "stock",
+      entityKey: String(row.entity_key),
+      displayName: String(row.display_name),
+      sectorName: row.sector_name ? String(row.sector_name) : null,
+      modelVersion: String(row.model_version),
+      predictedRank: Number(row.predicted_rank),
+      predictedProbability: Number(row.predicted_probability),
+      actualExcessReturn5d: toNumber(row.actual_excess_return_5d),
+      hitFlag: row.hit_flag === null ? null : Number(row.hit_flag),
+      evaluated: row.hit_flag !== null,
+    }));
+
+    const availablePredictionDates = availableDatesResult.rows
+      .map((row) => toDateText(row.prediction_date))
+      .filter((value): value is string => Boolean(value));
+
+    const normalizedSelectedPredictionDate =
+      normalizedPredictionDate && availablePredictionDates.includes(normalizedPredictionDate) ? normalizedPredictionDate : null;
+
+    const probabilityBuckets = diagnosticsResult.rows
+      .filter((row) => String(row.row_type) === "bucket")
+      .map((row) => ({
+        entityType: (String(row.entity_type) === "sector" ? "sector" : "stock") as "sector" | "stock",
+        bucketLabel: String(row.label),
+        rowCount: Number(row.row_count ?? 0),
+        hitRatio: toNumber(row.hit_ratio),
+        avgExcessReturn5d: toNumber(row.avg_excess_return_5d),
+      }));
+
+    const rankDiagnostics = diagnosticsResult.rows
+      .filter((row) => String(row.row_type) === "rank")
+      .map((row) => ({
+        entityType: (String(row.entity_type) === "sector" ? "sector" : "stock") as "sector" | "stock",
+        predictedRank: Number(row.predicted_rank),
+        rowCount: Number(row.row_count ?? 0),
+        hitRatio: toNumber(row.hit_ratio),
+        avgExcessReturn5d: toNumber(row.avg_excess_return_5d),
+      }));
+
+    const weakSectors = diagnosticsResult.rows
+      .filter((row) => String(row.row_type) === "weak_sector")
+      .map((row) => ({
+        sectorName: String(row.sector_name),
+        rowCount: Number(row.row_count ?? 0),
+        hitRatio: toNumber(row.hit_ratio),
+        avgExcessReturn5d: toNumber(row.avg_excess_return_5d),
+      }));
+
+    return {
+      activeSectorModelVersion,
+      activeStockModelVersion,
+      sectorSeries,
+      stockSeries,
+      rows,
+      availablePredictionDates,
+      selectedPredictionDate: normalizedSelectedPredictionDate,
+      probabilityBuckets,
+      rankDiagnostics,
+      weakSectors,
+    };
   } finally {
     client.release();
   }

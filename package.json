@@ -15,6 +15,7 @@
     "model:train": "node --env-file=.env scripts/train-baseline-models.mjs",
     "model:predict": "node --env-file=.env scripts/run-predictions.mjs",
     "model:evaluate": "node --env-file=.env scripts/evaluate-models.mjs",
+    "job:nightly": "node --env-file=.env scripts/run-nightly-job.mjs",
     "industry:import": "node --env-file=.env scripts/import-industry-classification-csv.mjs",
     "industry:check": "node --env-file=.env scripts/check-industry-classification.mjs"
   },

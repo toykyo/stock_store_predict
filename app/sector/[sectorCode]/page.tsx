@@ -136,7 +136,7 @@ export default async function SectorDetailPage({
             <strong>{detail.market ?? "-"}</strong>
           </div>
           <div className="metric-card">
-            <span>5-day outperformance probability</span>
+            <span>5-day upside probability</span>
             <strong className={(detail.latestPredictionProbability ?? 0) >= 0.5 ? "up" : "down"}>
               {formatRatio(detail.latestPredictionProbability)}
             </strong>
@@ -146,7 +146,7 @@ export default async function SectorDetailPage({
             <strong>{detail.latestPredictionRank === null ? "-" : String(detail.latestPredictionRank)}</strong>
           </div>
           <div className="metric-card">
-            <span>latest evaluated excess</span>
+            <span>latest evaluated return</span>
             <strong className={(detail.latestEvaluatedExcessReturn ?? 0) >= 0 ? "up" : "down"}>
               {formatPercent(detail.latestEvaluatedExcessReturn)}
             </strong>
@@ -303,7 +303,7 @@ export default async function SectorDetailPage({
                     fontSize="11"
                     fill="#c43b2f"
                   >
-                    5-day excess return &gt; 0
+                    5-day return &gt; 0
                   </text>
                 </>
               ) : null}
@@ -322,7 +322,7 @@ export default async function SectorDetailPage({
             <p className="chart-caption">
               The black line is the realized cumulative sector index built from daily sector returns through the latest stored
               trade date. The red segment starts on {formatDate(detail.latestPredictionDate)}
-              {detail.latestPredictionProbability !== null ? ` with predicted sector outperformance probability ${formatRatio(detail.latestPredictionProbability)}` : ""}
+              {detail.latestPredictionProbability !== null ? ` with predicted sector upside probability ${formatRatio(detail.latestPredictionProbability)}` : ""}
               {" "}and marks the next 5-trading-day forecast horizon through {formatDate(forecastEndDate)}. It is a horizon marker, not a projected price path.
             </p>
           </div>
@@ -346,7 +346,7 @@ export default async function SectorDetailPage({
               <strong>{formatRatio(detail.latestEvaluatedProbability)}</strong>
             </div>
             <div className="metric-card">
-              <span>realized excess</span>
+              <span>realized return</span>
               <strong className={(detail.latestEvaluatedExcessReturn ?? 0) >= 0 ? "up" : "down"}>
                 {formatPercent(detail.latestEvaluatedExcessReturn)}
               </strong>

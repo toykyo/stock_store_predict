@@ -26,6 +26,7 @@ export type TopSectorPrediction = {
   sectorName: string;
   probability: number;
   rank: number;
+  predictedStockCount: number;
   currentRank: number | null;
   currentRankTradeDate: string | null;
   previousRank: number | null;
@@ -39,6 +40,7 @@ export type CurrentSectorStatusRow = {
   sectorName: string;
   market: string | null;
   currentRank: number;
+  currentStockCount: number;
   sectorReturn1d: number | null;
   searchKeywords: string;
 };
@@ -85,6 +87,84 @@ export type PerformanceRow = {
   avgProbability: number | null;
 };
 
+export type PredictionHistoryRow = {
+  predictionDate: string | null;
+  entityType: "sector" | "stock";
+  entityKey: string;
+  displayName: string;
+  sectorName: string | null;
+  modelVersion: string;
+  predictedRank: number;
+  predictedProbability: number;
+  actualExcessReturn5d: number | null;
+  hitFlag: number | null;
+  evaluated: boolean;
+};
+
+export type PredictionHistorySeriesPoint = {
+  predictionDate: string;
+  avgPredictedProbability: number | null;
+  avgActualExcessReturn5d: number | null;
+  hitRatio: number | null;
+  totalCount: number;
+  evaluatedCount: number;
+};
+
+export type PredictionProbabilityBucketRow = {
+  entityType: "sector" | "stock";
+  bucketLabel: string;
+  rowCount: number;
+  hitRatio: number | null;
+  avgExcessReturn5d: number | null;
+};
+
+export type PredictionRankDiagnosticsRow = {
+  entityType: "sector" | "stock";
+  predictedRank: number;
+  rowCount: number;
+  hitRatio: number | null;
+  avgExcessReturn5d: number | null;
+};
+
+export type PredictionSectorDiagnosticsRow = {
+  sectorName: string;
+  rowCount: number;
+  hitRatio: number | null;
+  avgExcessReturn5d: number | null;
+};
+
+export type PredictionHistoryDetail = {
+  activeSectorModelVersion: string | null;
+  activeStockModelVersion: string | null;
+  sectorSeries: PredictionHistorySeriesPoint[];
+  stockSeries: PredictionHistorySeriesPoint[];
+  rows: PredictionHistoryRow[];
+  availablePredictionDates: string[];
+  selectedPredictionDate: string | null;
+  probabilityBuckets: PredictionProbabilityBucketRow[];
+  rankDiagnostics: PredictionRankDiagnosticsRow[];
+  weakSectors: PredictionSectorDiagnosticsRow[];
+};
+
+export type CurrentPolicyItem = {
+  scope: "sector" | "stock" | "service";
+  policyKey: string;
+  label: string;
+  value: string;
+  note: string | null;
+};
+
+export type ModelAdjustmentLogRow = {
+  adjustmentId: string;
+  adjustmentScope: string;
+  policyKey: string;
+  previousValue: string | null;
+  newValue: string | null;
+  reason: string;
+  appliedBy: string;
+  appliedAt: string;
+};
+
 export type MonitoringOverview = {
   dataStatus: {
     latestStockTradeDate: string | null;
@@ -103,6 +183,9 @@ export type MonitoringOverview = {
   topSectors: TopSectorPrediction[];
   topStocks: TopStockPrediction[];
   performance: PerformanceRow[];
+  predictionHistory: PredictionHistoryRow[];
+  currentPolicies: CurrentPolicyItem[];
+  latestAdjustments: ModelAdjustmentLogRow[];
 };
 
 export type SectorTrendPoint = {
